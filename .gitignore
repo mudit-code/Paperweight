@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Build & compilation outputs
+dist/
+installer-output/
+android-output/
+website/downloads/*.exe
+website/downloads/*.apk
+website/downloads/*.aab
+website/downloads/*.zip
+website/downloads/*.msi
+*.tsbuildinfo
+
+# Android & Gradle build cache
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/capacitor-cordova-android-plugins/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+
+# Keys, signing & environment variables
+.env
+.env.*
+*.jks
+*.keystore
+*.p12
+*.pem
+
+# Logs & OS / Editor files
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Temporary root scratch & template artifacts
+/crop_*.png
+/scratch_*.png
+/splash_crop.png
+/white_bar*.png
+/Paperweight download page*.html

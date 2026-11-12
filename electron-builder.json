@@ -1,0 +1,95 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.paperweight.app",
+  "productName": "Paperweight",
+  "copyright": "Copyright © 2026 Paperweight",
+  "directories": {
+    "output": "installer-output",
+    "buildResources": "build-resources"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*"
+  ],
+  "fileAssociations": [
+    {
+      "ext": "pdf",
+      "name": "PDF Document",
+      "description": "Adobe Portable Document Format",
+      "mimeType": "application/pdf",
+      "role": "Viewer"
+    },
+    {
+      "ext": ["jpg", "jpeg"],
+      "name": "JPEG Image",
+      "description": "JPEG Image File",
+      "mimeType": "image/jpeg",
+      "role": "Viewer"
+    },
+    {
+      "ext": "png",
+      "name": "PNG Image",
+      "description": "Portable Network Graphics Image",
+      "mimeType": "image/png",
+      "role": "Viewer"
+    },
+    {
+      "ext": "webp",
+      "name": "WebP Image",
+      "description": "WebP Image File",
+      "mimeType": "image/webp",
+      "role": "Viewer"
+    },
+    {
+      "ext": "avif",
+      "name": "AVIF Image",
+      "description": "AVIF Image File",
+      "mimeType": "image/avif",
+      "role": "Viewer"
+    },
+    {
+      "ext": "bmp",
+      "name": "Bitmap Image",
+      "description": "Bitmap Image File",
+      "mimeType": "image/bmp",
+      "role": "Viewer"
+    },
+    {
+      "ext": ["tif", "tiff"],
+      "name": "TIFF Image",
+      "description": "Tagged Image File Format",
+      "mimeType": "image/tiff",
+      "role": "Viewer"
+    },
+    {
+      "ext": "gif",
+      "name": "GIF Image",
+      "description": "Graphics Interchange Format",
+      "mimeType": "image/gif",
+      "role": "Viewer"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "build-resources/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "build-resources/icon.ico",
+    "uninstallerIcon": "build-resources/icon.ico",
+    "installerHeaderIcon": "build-resources/icon.ico",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Paperweight",
+    "deleteAppDataOnUninstall": false,
+    "runAfterFinish": true,
+    "include": "build-resources/installer.nsh"
+  }
+}

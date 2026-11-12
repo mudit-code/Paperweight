@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Paperweight Small Icon - Frameless Mark">
+  <defs>
+    <linearGradient id="opt2Weight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3F3E4C"/>
+      <stop offset="1" stop-color="#181720"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Stacked Paper Sheets (Fills full width with subtle margin) -->
+  <!-- Under sheet (Warm Parchment) -->
+  <rect x="2" y="16" width="28" height="13" rx="2" fill="#E8D5B8" stroke="#D1B996" stroke-width="0.75" transform="rotate(-2.5 16 22)"/>
+  <!-- Front sheet (Crisp White Document) -->
+  <rect x="2" y="17.5" width="28" height="12.5" rx="2" fill="#FFFDF8" stroke="#E3D7C3" stroke-width="0.75"/>
+  <!-- Document accent bar -->
+  <rect x="5" y="20.5" width="5.5" height="5.5" rx="1.2" fill="#B45309"/>
+  <!-- Content lines -->
+  <rect x="13" y="21" width="14" height="2" rx="1" fill="#D8CAB5"/>
+  <rect x="13" y="24.5" width="9" height="2" rx="1" fill="#D8CAB5"/>
+  
+  <!-- Heavy Contact Shadow -->
+  <ellipse cx="16" cy="18" rx="13" ry="2" fill="#1C1814" opacity="0.38"/>
+  
+  <!-- Cast-Iron Paperweight -->
+  <!-- Arched Heavy Handle -->
+  <path d="M11 11V6.5C11 4.2 13.2 2.5 16 2.5C18.8 2.5 21 4.2 21 6.5V11" fill="none" stroke="#23222B" stroke-width="3.2" stroke-linecap="round"/>
+  <!-- Handle specular sheen -->
+  <path d="M13 5.5C13.8 4.2 14.8 3.5 16 3.5C17.2 3.5 18.2 4.2 19 5.5" fill="none" stroke="#68677B" stroke-width="1.4" stroke-linecap="round"/>
+  
+  <!-- Trapezoidal Weight Body -->
+  <path d="M8 11H24L28.5 18.5H3.5L8 11Z" fill="url(#opt2Weight)" stroke="#191821" stroke-width="1" stroke-linejoin="round"/>
+  <!-- Top surface highlight -->
+  <line x1="8.5" y1="11.5" x2="23.5" y2="11.5" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="1" stroke-linecap="round"/>
+  
+  <!-- Amber Brand Emblem on Weight -->
+  <circle cx="16" cy="14.8" r="2.2" fill="#D97706"/>
+  <path d="M14.7 14.5L16 15.8L17.3 14.5" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+
