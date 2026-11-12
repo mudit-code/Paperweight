@@ -1,0 +1,102 @@
+/* Design Tokens for Paperweight
+   Strictly token-driven. No arbitrary values or hardcoded colors.
+   Adheres to strict CSP and zero-network local loading. */
+
+:root {
+  /* Dynamic Safe Area Insets (Seamless fallback between browser env() and Capacitor SystemBars CSS injection) */
+  --safe-area-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+  --safe-area-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
+  --safe-area-left: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+  --safe-area-right: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
+
+  /* Light Theme (Warm Alabaster / Linen Base) */
+  --surface-bg: #fbfaf8;
+  --surface-panel: #ffffff;
+  --surface-panel-raised: #f5f3ef;
+  --surface-subtle: #eeece7;
+  --surface-hover: #e6e3dd;
+  --surface-active: #dedad3;
+  --surface-border: #e3dfd7;
+  --surface-border-subtle: #eeebe5;
+  --surface-border-focus: #b45309;
+
+  --text-main: #191816;
+  --text-muted: #645f59;
+  --text-faint: #969086;
+  --text-disabled: #c2bcb4;
+
+  --accent: #b45309;
+  --accent-hover: #92400e;
+  --accent-subtle: rgba(180, 83, 9, 0.08);
+  --accent-border: rgba(180, 83, 9, 0.22);
+  --accent-contrast: #ffffff;
+
+  --status-offline: #059669;
+  --status-offline-bg: rgba(5, 150, 105, 0.08);
+  --status-offline-border: rgba(5, 150, 105, 0.25);
+
+  --status-error: #dc2626;
+  --status-error-bg: rgba(220, 38, 38, 0.08);
+  --status-error-border: rgba(220, 38, 38, 0.25);
+
+  --status-warning: #d97706;
+  --status-warning-bg: rgba(217, 119, 6, 0.08);
+  --status-warning-border: rgba(217, 119, 6, 0.25);
+
+  --shadow-sm: 0 1px 2px 0 rgba(25, 24, 22, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(25, 24, 22, 0.06), 0 2px 4px -2px rgba(25, 24, 22, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(25, 24, 22, 0.08), 0 4px 6px -4px rgba(25, 24, 22, 0.04);
+  --shadow-panel: 0 0 0 1px var(--surface-border), 0 2px 8px -2px rgba(25, 24, 22, 0.06);
+
+  --radius-xs: 3px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  --font-serif: 'Fraunces', 'Newsreader', Georgia, serif;
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
+.dark {
+  /* Dark Theme (Warm Obsidian / Charcoal Base) */
+  --surface-bg: #141312;
+  --surface-panel: #1b1a18;
+  --surface-panel-raised: #22201d;
+  --surface-subtle: #292724;
+  --surface-hover: #33302c;
+  --surface-active: #3d3934;
+  --surface-border: #322f2b;
+  --surface-border-subtle: #262421;
+  --surface-border-focus: #d97706;
+
+  --text-main: #f5f3ef;
+  --text-muted: #a6a096;
+  --text-faint: #6e685f;
+  --text-disabled: #47433c;
+
+  --accent: #d97706;
+  --accent-hover: #f59e0b;
+  --accent-subtle: rgba(217, 119, 6, 0.14);
+  --accent-border: rgba(217, 119, 6, 0.32);
+  --accent-contrast: #ffffff;
+
+  --status-offline: #10b981;
+  --status-offline-bg: rgba(16, 185, 129, 0.12);
+  --status-offline-border: rgba(16, 185, 129, 0.3);
+
+  --status-error: #ef4444;
+  --status-error-bg: rgba(239, 68, 68, 0.12);
+  --status-error-border: rgba(239, 68, 68, 0.3);
+
+  --status-warning: #f59e0b;
+  --status-warning-bg: rgba(245, 158, 11, 0.12);
+  --status-warning-border: rgba(245, 158, 11, 0.3);
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+  --shadow-panel: 0 0 0 1px var(--surface-border), 0 4px 16px -2px rgba(0, 0, 0, 0.45);
+}
