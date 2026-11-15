@@ -468,9 +468,9 @@ export const CameraViewfinder: React.FC<CameraViewfinderProps> = ({
 
         {/* Center Title & Pages Count */}
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold tracking-wide">Document Scanner</span>
+          <span className="text-sm font-semibold">Document Scanner</span>
           {totalCount > 0 && (
-            <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-full bg-accent text-white">
+            <span className="text-xs font-mono font-semibold px-2.5 py-0.5 rounded-chip bg-accent text-accent-contrast">
               {totalCount} {totalCount === 1 ? 'Page' : 'Pages'}
             </span>
           )}
@@ -579,24 +579,24 @@ export const CameraViewfinder: React.FC<CameraViewfinderProps> = ({
 
         {/* Camera Permission / Error Fallback Overlay */}
         {cameraError && (
-          <div className="absolute inset-6 z-30 flex flex-col items-center justify-center p-6 rounded-2xl bg-surface-panel border border-surface-border text-center max-w-sm mx-auto text-text-main shadow-2xl">
-            <AlertCircle className="w-12 h-12 text-amber-500 mb-3" />
+          <div className="absolute inset-6 z-30 flex flex-col items-center justify-center p-6 rounded-sheet bg-surface-panel border border-surface-border text-center max-w-sm mx-auto text-text-main shadow-lifted">
+            <AlertCircle className="w-10 h-10 text-status-warning mb-3" />
             <h4 className="text-base font-semibold mb-1">Camera Stream Unavailable</h4>
             <p className="text-xs text-text-muted mb-5 leading-relaxed">{cameraError}</p>
             <div className="flex flex-col gap-2.5 w-full">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full py-3 px-4 rounded-xl bg-accent hover:bg-accent-hover text-white font-bold text-xs transition-colors cursor-pointer active:scale-95 shadow-md"
+                className="w-full min-h-[44px] px-4 rounded-control bg-accent hover:bg-accent-hover text-accent-contrast font-semibold text-sm transition-colors cursor-pointer"
               >
-                Pick Photos from Device
+                Choose Photos from Device
               </button>
               <button
                 type="button"
                 onClick={startStream}
-                className="w-full py-2.5 px-4 rounded-xl bg-surface-subtle hover:bg-surface-panel border border-surface-border text-text-main font-medium text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                className="w-full min-h-[44px] px-4 rounded-control bg-surface-subtle hover:bg-surface-hover border border-surface-border text-text-main font-medium text-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
+                <RefreshCw className="w-4 h-4" />
                 <span>Retry Live Camera</span>
               </button>
             </div>
@@ -626,7 +626,7 @@ export const CameraViewfinder: React.FC<CameraViewfinderProps> = ({
               onClick={() => setIsAutoCaptureOn((prev) => !prev)}
               className={`w-12 h-12 rounded-xl flex items-center justify-center cursor-pointer active:scale-90 transition-all ${
                 isAutoCaptureOn
-                  ? 'bg-accent/15 dark:bg-accent/30 text-accent border border-accent/40 dark:border-accent/50 shadow-xs'
+                  ? 'bg-accent text-accent-contrast border border-accent shadow-xs'
                   : 'text-text-muted hover:text-text-main dark:text-white/80 dark:hover:text-white'
               }`}
               title={isAutoCaptureOn ? 'Auto-capture is ON' : 'Auto-capture is OFF'}
@@ -752,13 +752,17 @@ export const CameraViewfinder: React.FC<CameraViewfinderProps> = ({
 
       {/* DISCARD SCAN CONFIRMATION WARNING MODAL */}
       {showDiscardConfirm && (
-        <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="w-full max-w-sm rounded-2xl bg-surface-panel border border-surface-border p-5 shadow-2xl text-center space-y-4">
+        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-sm rounded-sheet bg-surface-panel border border-surface-border p-5 shadow-lifted text-center space-y-4"
+          >
             <div className="space-y-1.5">
-              <h3 className="font-serif font-bold text-base sm:text-lg text-text-main">
-                Are you sure to discard the scan?
+              <h3 className="font-semibold text-md text-text-main">
+                Discard scan?
               </h3>
-              <p className="text-xs text-text-muted">
+              <p className="text-sm text-text-muted">
                 You have {totalCount} scanned {totalCount === 1 ? 'page' : 'pages'} that will be discarded.
               </p>
             </div>
@@ -767,14 +771,14 @@ export const CameraViewfinder: React.FC<CameraViewfinderProps> = ({
               <button
                 type="button"
                 onClick={() => setShowDiscardConfirm(false)}
-                className="flex-1 py-2.5 px-4 rounded-xl border border-surface-border bg-surface-subtle hover:bg-surface-panel text-text-main font-semibold text-xs transition-colors cursor-pointer active:scale-95 shadow-xs"
+                className="flex-1 min-h-[44px] px-4 rounded-control border border-surface-border bg-surface-subtle hover:bg-surface-hover text-text-main font-semibold text-sm transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDiscard}
-                className="flex-1 py-2.5 px-4 rounded-xl bg-status-error hover:opacity-90 text-white font-semibold text-xs transition-colors cursor-pointer active:scale-95 shadow-md"
+                className="flex-1 min-h-[44px] px-4 rounded-control bg-status-error hover:opacity-90 text-white font-semibold text-sm transition-colors cursor-pointer"
               >
                 Discard
               </button>

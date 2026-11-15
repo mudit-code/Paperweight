@@ -309,7 +309,8 @@ export class RenderQueue {
 
       const viewport = pageProxy.getViewport({ scale: finalScale });
       const systemDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-      const targetDpr = Math.min(Math.max(systemDpr, 1.5), 3.0);
+      // Cap overview targetDpr at 2.0x (plenty sharp for 320-400+ PPI mobile displays, prevents 35MB multi-megapixel canvas thrashing)
+      const targetDpr = Math.min(systemDpr, 2.0);
       const { pixelWidth, pixelHeight, effectiveDpr } =
         CanvasPool.calculateSafeDimensions(viewport.width, viewport.height, targetDpr);
 

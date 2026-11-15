@@ -3,6 +3,7 @@ import type { ToolProps } from '../../core/tools/types';
 import { PdfToImageShowcase } from '../pdf-to-image/PdfToImageShowcase';
 import { GenericConverterShowcase } from './GenericConverterShowcase';
 import { ProgressBar } from '../../components/ui/ProgressBar';
+import { isMobileApp } from '../../core/processors/download';
 import { FEATURE_FLAGS } from '../../core/config/feature-flags';
 import {
   FileText,
@@ -10,7 +11,7 @@ import {
   FileSpreadsheet,
   Presentation,
   ArrowRightLeft,
-  ArrowRight,
+  ChevronRight,
   AlertCircle,
   X,
 } from 'lucide-react';
@@ -40,10 +41,10 @@ const BASE_CONVERTER_OPTIONS: ConverterOptionDef[] = [
     id: 'pdf-to-img',
     title: 'PDF to Image',
     shortLabel: 'PDF → Image',
-    description: 'Extract and render PDF document pages into crisp PNG, JPEG, WebP, AVIF, TIFF, or BMP images.',
+    description: 'Extract pages into crisp images',
     fromFormat: 'PDF',
     toFormat: 'Images',
-    badge: 'PDF → IMG',
+    badge: '.pdf → .png · .jpg · .webp',
     icon: FileText,
     accentColor: 'from-amber-500/10 to-orange-500/10 border-amber-500/30 text-amber-600 dark:text-amber-400',
   },
@@ -51,23 +52,23 @@ const BASE_CONVERTER_OPTIONS: ConverterOptionDef[] = [
     id: 'img-to-pdf',
     title: 'Image to PDF',
     shortLabel: 'Image → PDF',
-    description: 'Combine single or batch images (JPG, PNG, WebP) into a standardized, crisp PDF document.',
+    description: 'Combine photos into a clean PDF',
     fromFormat: 'Images',
     toFormat: 'PDF',
-    badge: 'IMG → PDF',
+    badge: '.jpg · .png · .webp → .pdf',
     icon: FileImage,
     accentColor: 'from-blue-500/10 to-cyan-500/10 border-blue-500/30 text-blue-600 dark:text-blue-400',
   },
   {
     id: 'img-to-img',
-    title: 'Image to Image',
-    shortLabel: 'Image → Any',
-    description: 'Convert images to any image type: PNG, JPEG, WebP, AVIF, BMP, or TIFF with custom quality.',
+    title: 'Convert Images',
+    shortLabel: 'Convert Images',
+    description: 'Convert format and dimensions',
     fromFormat: 'Any Image',
     toFormat: 'Any Format',
-    badge: 'IMG → IMG',
+    badge: '.png · .jpg · .webp · .avif',
     icon: ArrowRightLeft,
-    accentColor: 'from-purple-500/10 to-pink-500/10 border-purple-500/30 text-purple-600 dark:text-purple-400',
+    accentColor: 'bg-surface-subtle text-text-muted border-surface-border',
   },
 ];
 
@@ -124,9 +125,14 @@ export const ConverterTool: React.FC<ToolProps> = ({
   onDismissError,
   onExecute,
   onCancel,
+  onViewFile,
+  onViewImages,
 }) => {
-  // Converter mode directly driven by options.converterMode (null = Screen 1 Options Hub)
+  // Converter mode driven by options.converterMode.
+  // On mobile (< md), null renders the compact hub list; on desktop (>= md), segmented control defaults to 'pdf-to-img' above one large drop zone.
+  const isMobile = isMobileApp();
   const selectedMode = (options.converterMode as ConverterMode) || null;
+  const activeDesktopMode: ConverterMode = selectedMode || 'pdf-to-img';
 
   const handleSelectMode = (mode: ConverterMode) => {
     if (mode !== selectedMode) {
@@ -141,20 +147,50 @@ export const ConverterTool: React.FC<ToolProps> = ({
     }
   };
 
+  const renderShowcaseForMode = (mode: ConverterMode, extraClassName: string = '') =>
+    mode === 'pdf-to-img' ? (
+      <PdfToImageShowcase
+        files={files}
+        onFilesChange={onFilesChange}
+        options={options}
+        isProcessing={isProcessing}
+        result={result}
+        onDismissResult={onDismissResult}
+        onExecute={onExecute}
+        onViewFile={onViewFile}
+        onViewImages={onViewImages}
+        className={extraClassName}
+      />
+    ) : (
+      <GenericConverterShowcase
+        mode={mode}
+        files={files}
+        onFilesChange={onFilesChange}
+        options={options}
+        isProcessing={isProcessing}
+        result={result}
+        onDismissResult={onDismissResult}
+        onExecute={onExecute}
+        onViewFile={onViewFile}
+        onViewImages={onViewImages}
+        className={extraClassName}
+      />
+    );
+
   return (
-    <div className="flex-1 flex flex-col lg:h-full lg:overflow-hidden select-none">
+    <div className={`flex-1 flex flex-col ${isMobile && selectedMode ? 'h-full min-h-0 overflow-hidden' : 'lg:h-full lg:overflow-hidden'} select-none`}>
       {/* Scrollable Main Area on desktop lg, natural flow on small spaces */}
-      <div className="flex-1 lg:overflow-y-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4">
+      <div className={`flex-1 flex flex-col min-h-0 ${isMobile && selectedMode ? 'h-full p-3 pb-1 overflow-hidden' : 'lg:overflow-y-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4'}`}>
         {/* Error Alert */}
         {error && (
           <div
             role="alert"
-            className="flex items-start justify-between gap-3 p-4 rounded-xl bg-status-error-bg border border-status-error-border text-status-error animate-in fade-in"
+            className="flex items-start justify-between gap-3 p-4 rounded-sheet bg-status-error-bg border border-status-error-border text-status-error"
           >
             <div className="flex items-start gap-3">
               <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-              <div className="text-xs space-y-1">
-                <p className="font-semibold text-sm">{error.title}</p>
+              <div className="text-sm space-y-1">
+                <p className="font-semibold">{error.title}</p>
                 <p className="text-text-main">{error.message}</p>
                 {error.suggestion && (
                   <p className="text-text-muted mt-1">{error.suggestion}</p>
@@ -165,7 +201,7 @@ export const ConverterTool: React.FC<ToolProps> = ({
               <button
                 type="button"
                 onClick={onDismissError}
-                className="p-1 rounded text-status-error hover:bg-status-error/10 transition-colors cursor-pointer"
+                className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control text-status-error hover:bg-status-error-bg transition-colors cursor-pointer"
                 aria-label="Dismiss error"
               >
                 <X className="w-4 h-4" />
@@ -174,82 +210,94 @@ export const ConverterTool: React.FC<ToolProps> = ({
           </div>
         )}
 
-        {/* Progress Bar */}
+        {/* Progress Bar Overlay (matching Resizer) */}
         {isProcessing && progress && (
-          <ProgressBar progress={progress} onCancel={onCancel} />
+          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 select-none animate-in fade-in">
+            <div className="w-full max-w-sm p-4 sm:p-5 rounded-sheet bg-surface-panel border border-surface-border shadow-lifted space-y-3">
+              <ProgressBar progress={progress} onCancel={onCancel} />
+            </div>
+          </div>
         )}
 
-        {/* 1. CENTER OPTIONS HUB (Clean Grid of Conversion Tools) */}
-        {!selectedMode && (
-          <div className="max-w-5xl mx-auto py-2 animate-in fade-in">
-            {/* Grid of the 6 options in the center */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+        {/* DESKTOP (>= md): Segmented control centered above large drop zone */}
+        <div className="hidden md:flex flex-col gap-4 max-w-5xl mx-auto w-full flex-1 min-h-0">
+          <div className="flex items-center justify-center gap-3">
+            <div
+              role="tablist"
+              aria-label="Conversion type"
+              className="inline-flex items-center p-1 rounded-control bg-surface-panel border border-surface-border gap-1"
+            >
               {CONVERTER_OPTIONS.map((opt) => {
-                const Icon = opt.icon;
+                const isActive = activeDesktopMode === opt.id;
                 return (
                   <button
                     key={opt.id}
                     type="button"
+                    role="tab"
+                    aria-selected={isActive}
                     onClick={() => handleSelectMode(opt.id)}
-                    className="group text-left p-5 rounded-2xl bg-surface-panel border border-surface-border hover:border-accent hover:shadow-md transition-all duration-200 flex flex-col justify-between space-y-4 cursor-pointer relative overflow-hidden"
+                    className={`min-h-[40px] px-4 rounded-control text-sm font-medium transition-colors cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+                      isActive
+                        ? 'bg-accent text-accent-contrast font-semibold'
+                        : 'text-text-muted hover:text-text-main hover:bg-surface-hover'
+                    }`}
                   >
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="w-12 h-12 rounded-xl bg-accent-subtle/80 border border-accent/20 flex items-center justify-center text-accent group-hover:scale-105 transition-transform">
-                          <Icon className="w-6 h-6" />
-                        </div>
-                        <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-surface-subtle text-text-muted border border-surface-border-subtle group-hover:border-accent/40 group-hover:text-accent transition-colors">
-                          {opt.badge}
-                        </span>
-                      </div>
-
-                      <div>
-                        <h3 className="font-serif font-bold text-base text-text-main group-hover:text-accent transition-colors flex items-center gap-1.5">
-                          {opt.title}
-                          <ArrowRight className="w-3.5 h-3.5 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all text-accent" />
-                        </h3>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 border-t border-surface-border-subtle flex items-center justify-between text-[11px] font-mono text-text-faint">
-                      <span>{opt.fromFormat}</span>
-                      <span>&rarr;</span>
-                      <span className="font-semibold text-text-main">{opt.toFormat}</span>
-                    </div>
+                    <span>{opt.title}</span>
                   </button>
                 );
               })}
             </div>
           </div>
-        )}
 
-        {/* 2. DEDICATED CONVERTER PANEL (When an option is open) */}
-        {selectedMode && (
-          <div className="animate-in fade-in">
-            {selectedMode === 'pdf-to-img' ? (
-              <PdfToImageShowcase
-                files={files}
-                onFilesChange={onFilesChange}
-                options={options}
-                isProcessing={isProcessing}
-                result={result}
-                onDismissResult={onDismissResult}
-                onExecute={onExecute}
-              />
-            ) : (
-              <GenericConverterShowcase
-                mode={selectedMode}
-                files={files}
-                onFilesChange={onFilesChange}
-                options={options}
-                isProcessing={isProcessing}
-                result={result}
-                onDismissResult={onDismissResult}
-                onExecute={onExecute}
-              />
-            )}
-          </div>
-        )}
+          {renderShowcaseForMode(activeDesktopMode, 'flex-1 min-h-0')}
+        </div>
+
+        {/* MOBILE (< md): Options hub when no mode chosen */}
+        <div className={`md:hidden ${selectedMode ? 'flex-1 min-h-0 flex flex-col' : ''}`}>
+          {!selectedMode ? (
+            <div className="w-full max-w-2xl mx-auto py-2 flex flex-col gap-3">
+              {/* Unified 3-Row Card matching Compress hub */}
+              <div className="rounded-sheet border border-surface-border bg-surface-panel divide-y divide-surface-border overflow-hidden shadow-2xs">
+                {CONVERTER_OPTIONS.map((opt) => {
+                  const Icon = opt.icon;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => handleSelectMode(opt.id)}
+                      className="w-full p-4 flex items-center gap-4 text-left bg-surface-panel hover:bg-surface-hover transition-colors cursor-pointer group"
+                    >
+                      {/* Left: Rounded square icon */}
+                      <div className="w-12 h-12 rounded-control bg-surface-subtle border border-surface-border/60 flex items-center justify-center shrink-0 text-text-main group-hover:text-accent transition-colors">
+                        <Icon className="w-6 h-6" />
+                      </div>
+
+                      {/* Middle: Title and Format Badge */}
+                      <div className="flex-1 min-w-0">
+                        <span className="text-base font-bold text-text-main block">
+                          {opt.title}
+                        </span>
+                        <span className="font-mono text-xs text-text-muted mt-0.5 inline-block">
+                          {opt.badge}
+                        </span>
+                      </div>
+
+                      {/* Right: Chevron */}
+                      <ChevronRight className="w-5 h-5 text-text-muted shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Bottom Centered Privacy Note */}
+              <p className="text-center text-xs text-text-muted pt-1">
+                Processed on this device. Nothing is uploaded.
+              </p>
+            </div>
+          ) : (
+            renderShowcaseForMode(selectedMode, 'flex-1 min-h-0')
+          )}
+        </div>
       </div>
     </div>
   );

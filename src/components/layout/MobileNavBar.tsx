@@ -12,6 +12,8 @@ export interface MobileNavBarProps {
   onSelectTool: (toolId: string) => void;
   onOpenScan: () => void;
   isScanningOrEditing?: boolean;
+  isKeyboardOpen?: boolean;
+  className?: string;
 }
 
 interface NavTabItem {
@@ -20,7 +22,6 @@ interface NavTabItem {
   icon: React.ComponentType<{ className?: string }>;
 }
 
-// Exact tab order requested: compress, resize, scans, convert, merge
 const NAV_TABS: NavTabItem[] = [
   { id: 'image-resizer', label: 'Compress', icon: Minimize2 },
   { id: 'resizer', label: 'Resize', icon: Crop },
@@ -34,8 +35,9 @@ export const MobileNavBar: React.FC<MobileNavBarProps> = ({
   onSelectTool,
   onOpenScan,
   isScanningOrEditing = false,
+  isKeyboardOpen = false,
+  className = '',
 }) => {
-  // If currently scanning or in document editor, hide taskbar to eliminate overlaps
   if (isScanningOrEditing) {
     return null;
   }
@@ -43,7 +45,9 @@ export const MobileNavBar: React.FC<MobileNavBarProps> = ({
   return (
     <nav
       aria-label="Mobile Navigation Bar"
-      className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-surface-panel/95 backdrop-blur-md border-t border-surface-border pl-[max(0.25rem,var(--safe-area-left))] pr-[max(0.25rem,var(--safe-area-right))] pt-1 pb-[max(0.6rem,var(--safe-area-bottom))] flex items-center justify-between select-none shadow-md overscroll-none transition-[padding] duration-150"
+      className={`lg:hidden fixed bottom-0 inset-x-0 z-40 bg-surface-panel border-t border-surface-border pl-[max(0.25rem,var(--safe-area-left))] pr-[max(0.25rem,var(--safe-area-right))] pb-[max(0.5rem,var(--safe-area-bottom))] flex items-center justify-between select-none overscroll-none transition-transform duration-150 ease-out ${
+        isKeyboardOpen ? 'translate-y-full pointer-events-none' : 'translate-y-0'
+      } ${className}`}
     >
       {NAV_TABS.map((tab) => {
         const Icon = tab.icon;
@@ -66,15 +70,16 @@ export const MobileNavBar: React.FC<MobileNavBarProps> = ({
             key={tab.id}
             type="button"
             onClick={handleClick}
-            className={`flex-1 min-h-[48px] flex flex-col items-center justify-center py-1 px-1 rounded-xl cursor-pointer transition-colors active:scale-95 ${
+            aria-current={isActive ? 'page' : undefined}
+            className={`relative flex-1 min-h-[52px] flex flex-col items-center justify-center py-1.5 px-1 rounded-control cursor-pointer transition-colors duration-fast ease-out ${
               isActive
-                ? 'text-accent font-semibold'
-                : 'text-text-muted hover:text-text-main'
+                ? 'text-text-main font-bold before:content-[""] before:absolute before:top-0 before:left-3 before:right-3 before:h-[3px] before:rounded-b-control before:bg-accent'
+                : 'text-text-muted hover:text-text-main font-medium'
             }`}
             aria-label={tab.label}
           >
-            <Icon className={`w-5 h-5 ${tab.id === 'scans' ? 'stroke-[2.25]' : ''}`} />
-            <span className="text-[10px] tracking-tight mt-0.5">{tab.label}</span>
+            <Icon className="w-5 h-5" />
+            <span className="text-xs tracking-tight mt-0.5">{tab.label}</span>
           </button>
         );
       })}

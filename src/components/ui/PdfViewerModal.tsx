@@ -182,7 +182,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
     setPageInputText(String(currentPage));
   }, [currentPage]);
   const [isScrubberVisible, setIsScrubberVisible] = useState(false);
-  const [scrubberTop, setScrubberTop] = useState(70);
+  const scrubberRef = useRef<HTMLDivElement>(null);
   const scrubberTimerRef = useRef<number | null>(null);
   const isScrubbingRef = useRef(false);
 
@@ -201,13 +201,15 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
 
   const syncScrubberPosition = useCallback(() => {
     const container = containerRef.current;
-    if (!container) return;
+    const scrubber = scrubberRef.current;
+    if (!container || !scrubber) return;
     const maxScroll = container.scrollHeight - container.clientHeight;
     const progress = maxScroll > 0 ? Math.max(0, Math.min(1, container.scrollTop / maxScroll)) : 0;
-    const rect = container.getBoundingClientRect();
-    const trackTop = rect.top + 8;
-    const trackHeight = Math.max(50, rect.height - 16 - 44);
-    setScrubberTop(Math.round(trackTop + progress * trackHeight));
+    const containerHeight = container.clientHeight || window.innerHeight;
+    const trackTop = 64;
+    const trackHeight = Math.max(50, containerHeight - trackTop - 70);
+    const topY = Math.round(trackTop + progress * trackHeight);
+    scrubber.style.transform = `translate3d(0, ${topY}px, 0)`;
   }, []);
 
   // Synchronize scrollLeft/scrollTop immediately after React updates DOM layout dimensions
@@ -606,17 +608,20 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
     if (!touch) return;
 
     const container = containerRef.current;
+    const scrubber = scrubberRef.current;
     if (!container) return;
 
-    const rect = container.getBoundingClientRect();
-    const trackTop = rect.top + 8;
-    const trackHeight = Math.max(50, rect.height - 16 - 44);
+    const containerHeight = container.clientHeight || window.innerHeight;
+    const trackTop = 64;
+    const trackHeight = Math.max(50, containerHeight - trackTop - 70);
     const progress = Math.max(0, Math.min(1, (touch.clientY - trackTop - 22) / trackHeight));
     const maxScroll = container.scrollHeight - container.clientHeight;
 
     const targetScroll = Math.round(progress * maxScroll);
     container.scrollTop = targetScroll;
-    setScrubberTop(Math.round(trackTop + progress * trackHeight));
+    if (scrubber) {
+      scrubber.style.transform = `translate3d(0, ${Math.round(trackTop + progress * trackHeight)}px, 0)`;
+    }
     updateVisibleRange(targetScroll);
     triggerScrubberVisibility();
   };
@@ -642,17 +647,20 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
       e.stopPropagation();
       e.preventDefault();
       const container = containerRef.current;
+      const scrubber = scrubberRef.current;
       if (!container) return;
 
-      const rect = container.getBoundingClientRect();
-      const trackTop = rect.top + 8;
-      const trackHeight = Math.max(50, rect.height - 16 - 44);
+      const containerHeight = container.clientHeight || window.innerHeight;
+      const trackTop = 64;
+      const trackHeight = Math.max(50, containerHeight - trackTop - 70);
       const progress = Math.max(0, Math.min(1, (e.clientY - trackTop - 22) / trackHeight));
       const maxScroll = container.scrollHeight - container.clientHeight;
 
       const targetScroll = Math.round(progress * maxScroll);
       container.scrollTop = targetScroll;
-      setScrubberTop(Math.round(trackTop + progress * trackHeight));
+      if (scrubber) {
+        scrubber.style.transform = `translate3d(0, ${Math.round(trackTop + progress * trackHeight)}px, 0)`;
+      }
       updateVisibleRange(targetScroll);
       triggerScrubberVisibility();
     }
@@ -749,8 +757,13 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
     let focalY = 0;
     let startScrollLeft = 0;
     let startScrollTop = 0;
+    let docFocalX = 0;
+    let docFocalY = 0;
     let isPinching = false;
     let isPinchReleasing = false;
+    let pinchCurrentScale = 1.0;
+    let pinchPanX = 0;
+    let pinchPanY = 0;
 
     // Double-tap & One-handed drag zoom state
     let lastTapTime = 0;
@@ -761,46 +774,16 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
     let doubleTapStartScale = 1.0;
     let doubleTapFocalX = 0;
     let doubleTapFocalY = 0;
+    let doubleTapDocFocalX = 0;
+    let doubleTapDocFocalY = 0;
     let doubleTapStartScrollLeft = 0;
     let doubleTapStartScrollTop = 0;
-    let animRafId: number | null = null;
-    let latestPinchScale = 1.0;
-    let latestCurFocalX = 0;
-    let latestCurFocalY = 0;
-    let latestDragScale = 1.0;
-    let dynamicSettleTimer: ReturnType<typeof setTimeout> | null = null;
-    let lastDynamicSettleTime = 0;
-
-    const scheduleDynamicZoomSettle = (targetScale: number) => {
-      const now = performance.now();
-      const relDiff = Math.abs(targetScale - settledScaleRef.current) / Math.max(0.1, settledScaleRef.current);
-      if (relDiff < 0.06) return;
-
-      if (now - lastDynamicSettleTime >= 110) {
-        lastDynamicSettleTime = now;
-        if (dynamicSettleTimer) {
-          clearTimeout(dynamicSettleTimer);
-          dynamicSettleTimer = null;
-        }
-        setSettledScale(targetScale);
-        RenderQueue.getInstance().cancelForScaleChange(targetScale);
-      } else {
-        if (dynamicSettleTimer) clearTimeout(dynamicSettleTimer);
-        dynamicSettleTimer = setTimeout(() => {
-          dynamicSettleTimer = null;
-          lastDynamicSettleTime = performance.now();
-          const cur = interactiveScaleRef.current;
-          if (Math.abs(cur - settledScaleRef.current) / Math.max(0.1, settledScaleRef.current) > 0.04) {
-            setSettledScale(cur);
-            RenderQueue.getInstance().cancelForScaleChange(cur);
-          }
-        }, 70);
-      }
-    };
+    let doubleTapCurrentScale = 1.0;
 
     const onTouchStart = (e: TouchEvent) => {
+      const wrapper = pagesWrapperRef.current;
       if (e.touches.length >= 2) {
-        // Multi-touch Pinch Zoom: strictly disable scrolling and take full touch control
+        // Multi-touch Pinch Zoom: take full touch control
         container.style.touchAction = 'none';
         isDoubleTapCandidate = false;
         isDoubleTapDragging = false;
@@ -816,8 +799,20 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
         focalY = (t1.clientY + t2.clientY) / 2 - rect.top;
         startScrollLeft = container.scrollLeft;
         startScrollTop = container.scrollTop;
+        docFocalX = startScrollLeft + focalX;
+        docFocalY = startScrollTop + focalY;
+
+        pinchCurrentScale = initialScale;
+        pinchPanX = 0;
+        pinchPanY = 0;
+
         isPinching = true;
         isGesturingRef.current = true;
+
+        if (wrapper) {
+          wrapper.style.willChange = 'transform';
+          wrapper.style.transformOrigin = `${docFocalX}px ${docFocalY}px`;
+        }
 
         if (e.cancelable) {
           e.preventDefault();
@@ -828,9 +823,9 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
         const distFromLast = Math.hypot(t.clientX - lastTapPos.x, t.clientY - lastTapPos.y);
 
         if (now - lastTapTime < 350 && distFromLast < 50) {
-          // Second tap within 350ms -> candidate for double-tap or double-tap drag!
+          // Second tap within 350ms -> candidate for double-tap or double-tap drag
           if (e.cancelable) {
-            e.preventDefault(); // Stop native scrolling so drag works!
+            e.preventDefault();
           }
           container.style.touchAction = 'none';
           const rect = container.getBoundingClientRect();
@@ -842,7 +837,10 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
           doubleTapFocalY = t.clientY - rect.top;
           doubleTapStartScrollLeft = container.scrollLeft;
           doubleTapStartScrollTop = container.scrollTop;
-          lastTapTime = 0; // consumed
+          doubleTapDocFocalX = doubleTapStartScrollLeft + doubleTapFocalX;
+          doubleTapDocFocalY = doubleTapStartScrollTop + doubleTapFocalY;
+          doubleTapCurrentScale = doubleTapStartScale;
+          lastTapTime = 0;
         } else {
           lastTapTime = now;
           lastTapPos = { x: t.clientX, y: t.clientY };
@@ -853,8 +851,8 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      const wrapper = pagesWrapperRef.current;
       if (e.touches.length >= 2) {
-        // Multi-touch active: STRICTLY DISABLE SCROLL
         if (e.cancelable) {
           e.preventDefault();
         }
@@ -870,60 +868,33 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
           focalY = (t1.clientY + t2.clientY) / 2 - rect.top;
           startScrollLeft = container.scrollLeft;
           startScrollTop = container.scrollTop;
+          docFocalX = startScrollLeft + focalX;
+          docFocalY = startScrollTop + focalY;
           isPinching = true;
           isGesturingRef.current = true;
+          if (wrapper) {
+            wrapper.style.willChange = 'transform';
+            wrapper.style.transformOrigin = `${docFocalX}px ${docFocalY}px`;
+          }
         }
 
         const t1 = e.touches[0];
         const t2 = e.touches[1];
         const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-        const ratio = dist / initialDist;
-        const rawScale = initialScale * ratio;
+        const scaleRatio = dist / initialDist;
+        const rawScale = initialScale * scaleRatio;
         const clampedScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, rawScale));
+        pinchCurrentScale = clampedScale;
 
+        const effectiveRatio = clampedScale / initialScale;
         const rect = container.getBoundingClientRect();
-        latestCurFocalX = (t1.clientX + t2.clientX) / 2 - rect.left;
-        latestCurFocalY = (t1.clientY + t2.clientY) / 2 - rect.top;
-        latestPinchScale = clampedScale;
+        const curScreenFocalX = (t1.clientX + t2.clientX) / 2 - rect.left;
+        const curScreenFocalY = (t1.clientY + t2.clientY) / 2 - rect.top;
+        pinchPanX = curScreenFocalX - focalX;
+        pinchPanY = curScreenFocalY - focalY;
 
-        if (animRafId === null) {
-          animRafId = requestAnimationFrame(() => {
-            animRafId = null;
-            const targetScale = latestPinchScale;
-            const curX = latestCurFocalX;
-            const curY = latestCurFocalY;
-
-            const { scrollLeft: targetScrollLeft, scrollTop: targetScrollTop } = calculateFocalScrollOffsets(
-              focalX,
-              focalY,
-              startScrollLeft,
-              startScrollTop,
-              initialScale,
-              targetScale,
-              containerWidthRef.current,
-              defaultAspectRatioRef.current,
-              aspectRatioMapRef.current,
-              totalPagesRef.current,
-              curX,
-              curY
-            );
-
-            if (targetScale === interactiveScaleRef.current) {
-              if (container) {
-                container.scrollLeft = targetScrollLeft;
-                container.scrollTop = targetScrollTop;
-              }
-            } else {
-              pendingFocalScrollRef.current = {
-                scrollLeft: targetScrollLeft,
-                scrollTop: targetScrollTop,
-              };
-              setInteractiveScale(targetScale);
-            }
-            updateVisibleRange(targetScrollTop, targetScale);
-            triggerScrubberVisibility();
-            scheduleDynamicZoomSettle(targetScale);
-          });
+        if (wrapper) {
+          wrapper.style.transform = `translate3d(${pinchPanX}px, ${pinchPanY}px, 0) scale(${effectiveRatio})`;
         }
         return;
       }
@@ -940,54 +911,26 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
           e.preventDefault();
         }
         const t = e.touches[0];
-        // Swapped directions: Down is positive (zoom in), up is negative (zoom out)
         const deltaY = t.clientY - doubleTapStartY;
 
         if (!isDoubleTapDragging && Math.abs(deltaY) > 6) {
           isDoubleTapDragging = true;
           isGesturingRef.current = true;
+          if (wrapper) {
+            wrapper.style.willChange = 'transform';
+            wrapper.style.transformOrigin = `${doubleTapDocFocalX}px ${doubleTapDocFocalY}px`;
+          }
         }
 
         if (isDoubleTapDragging) {
           const scaleFactor = Math.pow(2, deltaY / 80);
           const rawScale = doubleTapStartScale * scaleFactor;
           const clampedScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, rawScale));
+          doubleTapCurrentScale = clampedScale;
+          const effectiveRatio = clampedScale / doubleTapStartScale;
 
-          latestDragScale = clampedScale;
-
-          if (animRafId === null) {
-            animRafId = requestAnimationFrame(() => {
-              animRafId = null;
-              const targetScale = latestDragScale;
-              const { scrollLeft: targetScrollLeft, scrollTop: targetScrollTop } = calculateFocalScrollOffsets(
-                doubleTapFocalX,
-                doubleTapFocalY,
-                doubleTapStartScrollLeft,
-                doubleTapStartScrollTop,
-                doubleTapStartScale,
-                targetScale,
-                containerWidthRef.current,
-                defaultAspectRatioRef.current,
-                aspectRatioMapRef.current,
-                totalPagesRef.current
-              );
-
-              if (targetScale === interactiveScaleRef.current) {
-                if (container) {
-                  container.scrollLeft = targetScrollLeft;
-                  container.scrollTop = targetScrollTop;
-                }
-              } else {
-                pendingFocalScrollRef.current = {
-                  scrollLeft: targetScrollLeft,
-                  scrollTop: targetScrollTop,
-                };
-                setInteractiveScale(targetScale);
-              }
-              updateVisibleRange(targetScrollTop, targetScale);
-              triggerScrubberVisibility();
-              scheduleDynamicZoomSettle(targetScale);
-            });
+          if (wrapper) {
+            wrapper.style.transform = `scale(${effectiveRatio})`;
           }
           return;
         }
@@ -1002,10 +945,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
     };
 
     const onTouchEnd = (e: TouchEvent) => {
-      if (dynamicSettleTimer) {
-        clearTimeout(dynamicSettleTimer);
-        dynamicSettleTimer = null;
-      }
+      const wrapper = pagesWrapperRef.current;
 
       if (isPinching) {
         if (e.touches.length < 2) {
@@ -1016,15 +956,36 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
             container.style.touchAction = 'pan-x pan-y';
           }
 
-          if (animRafId !== null) {
-            cancelAnimationFrame(animRafId);
-            animRafId = null;
+          const finalScale = pinchCurrentScale;
+          const { scrollLeft: targetScrollLeft, scrollTop: targetScrollTop } = calculateFocalScrollOffsets(
+            focalX,
+            focalY,
+            startScrollLeft,
+            startScrollTop,
+            initialScale,
+            finalScale,
+            containerWidthRef.current,
+            defaultAspectRatioRef.current,
+            aspectRatioMapRef.current,
+            totalPagesRef.current,
+            focalX + pinchPanX,
+            focalY + pinchPanY
+          );
+
+          if (wrapper) {
+            wrapper.style.transform = '';
+            wrapper.style.transformOrigin = '';
+            wrapper.style.willChange = '';
           }
 
-          const finalScale = interactiveScaleRef.current;
+          pendingFocalScrollRef.current = {
+            scrollLeft: targetScrollLeft,
+            scrollTop: targetScrollTop,
+          };
+          setInteractiveScale(finalScale);
           setSettledScale(finalScale);
           RenderQueue.getInstance().cancelForScaleChange(finalScale);
-          updateVisibleRange();
+          updateVisibleRange(targetScrollTop, finalScale);
           syncScrubberPosition();
           triggerScrubberVisibility();
           setViewportTick((t) => t + 1);
@@ -1042,28 +1003,44 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
       if (isDoubleTapCandidate) {
         isDoubleTapCandidate = false;
 
-        if (animRafId !== null) {
-          cancelAnimationFrame(animRafId);
-          animRafId = null;
-        }
-
         if (isDoubleTapDragging) {
-          // Finished One-Handed Drag Zoom
           isDoubleTapDragging = false;
           isGesturingRef.current = false;
           container.style.touchAction = 'pan-x pan-y';
 
-          const finalScale = interactiveScaleRef.current;
+          const finalScale = doubleTapCurrentScale;
+          const { scrollLeft: targetScrollLeft, scrollTop: targetScrollTop } = calculateFocalScrollOffsets(
+            doubleTapFocalX,
+            doubleTapFocalY,
+            doubleTapStartScrollLeft,
+            doubleTapStartScrollTop,
+            doubleTapStartScale,
+            finalScale,
+            containerWidthRef.current,
+            defaultAspectRatioRef.current,
+            aspectRatioMapRef.current,
+            totalPagesRef.current
+          );
+
+          if (wrapper) {
+            wrapper.style.transform = '';
+            wrapper.style.transformOrigin = '';
+            wrapper.style.willChange = '';
+          }
+
+          pendingFocalScrollRef.current = {
+            scrollLeft: targetScrollLeft,
+            scrollTop: targetScrollTop,
+          };
+          setInteractiveScale(finalScale);
           setSettledScale(finalScale);
           RenderQueue.getInstance().cancelForScaleChange(finalScale);
-          updateVisibleRange();
+          updateVisibleRange(targetScrollTop, finalScale);
           syncScrubberPosition();
           triggerScrubberVisibility();
           setViewportTick((t) => t + 1);
         } else {
           // Quick Double-Tap:
-          // Rule i: If already fit to page (1.0x) -> zoom to fixed level (2.5x)
-          // Rule ii: If not fit to page -> reset to fit to page (1.0x)
           container.style.touchAction = 'pan-x pan-y';
           const currentScale = interactiveScaleRef.current;
           const isFitToPage = Math.abs(currentScale - 1.0) < 0.05;
@@ -1095,9 +1072,17 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
       }
     };
 
-    const onTouchCancel = (e: TouchEvent) => {
-      onTouchEnd(e);
+    const onTouchCancel = (_e: TouchEvent) => {
+      const wrapper = pagesWrapperRef.current;
+      if (wrapper) {
+        wrapper.style.transform = '';
+        wrapper.style.transformOrigin = '';
+        wrapper.style.willChange = '';
+      }
+      isPinching = false;
       isPinchReleasing = false;
+      isDoubleTapCandidate = false;
+      isDoubleTapDragging = false;
       isGesturingRef.current = false;
       container.style.touchAction = 'pan-x pan-y';
     };
@@ -1108,19 +1093,12 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
     container.addEventListener('touchcancel', onTouchCancel, { passive: true });
 
     return () => {
-      if (dynamicSettleTimer) {
-        clearTimeout(dynamicSettleTimer);
-        dynamicSettleTimer = null;
-      }
-      if (animRafId !== null) {
-        cancelAnimationFrame(animRafId);
-      }
       container.removeEventListener('touchstart', onTouchStart);
       container.removeEventListener('touchmove', onTouchMove);
       container.removeEventListener('touchend', onTouchEnd);
       container.removeEventListener('touchcancel', onTouchCancel);
     };
-  }, [isOpen]);
+  }, [isOpen, syncScrubberPosition, triggerScrubberVisibility, updateVisibleRange]);
 
   // Desktop Fit to Width / Fit to Page Calculations (Accurately adapts whether sidebar is open or closed)
   const calculateFitWidthScale = useCallback(() => {
@@ -1307,30 +1285,18 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
         setInteractiveScale(targetScale);
         updateVisibleRange(targetScrollTop, targetScale);
 
-        const now = performance.now();
-        const relDiff = Math.abs(targetScale - settledScaleRef.current) / Math.max(0.1, settledScaleRef.current);
-        if (relDiff >= 0.08 && now - lastWheelSettleTimeRef.current >= 110) {
-          lastWheelSettleTimeRef.current = now;
-          if (wheelZoomTimerRef.current !== null) {
-            clearTimeout(wheelZoomTimerRef.current);
-            wheelZoomTimerRef.current = null;
-          }
-          setSettledScale(targetScale);
-          RenderQueue.getInstance().cancelForScaleChange(targetScale);
-          updateVisibleRange(targetScrollTop, targetScale);
-        } else {
-          if (wheelZoomTimerRef.current !== null) {
-            clearTimeout(wheelZoomTimerRef.current);
-          }
-          wheelZoomTimerRef.current = window.setTimeout(() => {
-            lastWheelSettleTimeRef.current = performance.now();
-            const finalScale = interactiveScaleRef.current;
-            setSettledScale(finalScale);
-            RenderQueue.getInstance().cancelForScaleChange(finalScale);
-            updateVisibleRange(undefined, finalScale);
-            setViewportTick((t) => t + 1);
-          }, 85);
+        if (wheelZoomTimerRef.current !== null) {
+          clearTimeout(wheelZoomTimerRef.current);
         }
+        wheelZoomTimerRef.current = window.setTimeout(() => {
+          wheelZoomTimerRef.current = null;
+          lastWheelSettleTimeRef.current = performance.now();
+          const finalScale = interactiveScaleRef.current;
+          setSettledScale(finalScale);
+          RenderQueue.getInstance().cancelForScaleChange(finalScale);
+          updateVisibleRange(undefined, finalScale);
+          setViewportTick((t) => t + 1);
+        }, 130);
       }
     };
 
@@ -1647,19 +1613,19 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
     <div data-pdf-modal="true" className="fixed inset-0 z-50 bg-surface-bg flex flex-col animate-in fade-in duration-150 select-none">
       {/* Top Header Bar */}
       {isDesktop ? (
-        /* Desktop Top Header Bar (Chrome / Acrobat Style) */
-        <header className="w-full bg-surface-panel border-b border-surface-border px-3 sm:px-4 py-2 flex items-center justify-between shrink-0 shadow-xs relative z-30 select-none">
-          {/* Left: Sidebar Toggle, Document Title (Back button removed on desktop; hidden in small spaces) */}
+        /* Desktop Top Header Bar */
+        <header className="w-full bg-surface-panel border-b border-surface-border px-3 sm:px-4 py-1.5 flex items-center justify-between shrink-0 relative z-30 select-none">
+          {/* Left: Sidebar Toggle, Document Title */}
           <div className="flex items-center gap-2 min-w-0">
-            {/* Sidebar Toggle Option (Hidden in small spaces) */}
+            {/* Sidebar Toggle Option */}
             {!isSmallSpace && (
               <button
                 type="button"
                 onClick={() => setIsSidebarOpen((prev) => !prev)}
-                className={`p-1.5 rounded-lg border transition-all cursor-pointer shrink-0 flex items-center justify-center ${
+                className={`min-w-[36px] min-h-[36px] px-2 rounded-control border transition-colors cursor-pointer shrink-0 flex items-center justify-center ${
                   isSidebarOpen
-                    ? 'bg-surface-subtle border-accent text-accent shadow-xs'
-                    : 'bg-surface-panel border-surface-border text-text-muted hover:text-text-main hover:border-surface-border-strong'
+                    ? 'bg-accent text-accent-contrast border-accent'
+                    : 'bg-surface-panel border-surface-border text-text-muted hover:text-text-main hover:bg-surface-hover'
                 }`}
                 title={isSidebarOpen ? 'Hide thumbnail sidebar' : 'Show thumbnail sidebar'}
                 aria-label="Toggle thumbnail sidebar"
@@ -1668,14 +1634,14 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
               </button>
             )}
 
-            {/* Document Title (Hidden in small spaces) */}
+            {/* Document Title */}
             {!isSmallSpace && (
               <div className="flex items-center gap-2 min-w-0 max-w-[180px] lg:max-w-xs xl:max-w-md">
-                <span className="font-semibold text-xs text-text-main truncate" title={fileName}>
+                <span className="font-mono font-semibold text-xs text-text-main truncate" title={fileName}>
                   {fileName}
                 </span>
                 {isCompressed && (
-                  <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-accent-subtle text-accent border border-accent-border">
+                  <span className="shrink-0 px-2 py-0.5 rounded-chip text-xs font-mono font-semibold bg-accent text-accent-contrast">
                     Compressed
                   </span>
                 )}
@@ -1698,29 +1664,30 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                   }
                 }}
                 onBlur={handlePageInputCommit}
-                className="w-11 text-center bg-surface-subtle border border-surface-border rounded py-0.5 px-1 font-bold text-text-main focus:outline-none focus:border-accent text-xs"
+                className="w-11 min-h-[32px] text-center bg-surface-subtle border border-surface-border rounded-control px-1 font-semibold text-text-main focus:outline-none focus:border-accent text-xs"
                 title="Current page (press Enter to jump)"
                 aria-label="Page number input"
               />
               <span className="text-text-muted select-none">/ {totalPages > 0 ? totalPages : 1}</span>
             </div>
 
-            <div className="h-4 w-[1px] bg-surface-border hidden xs:block" />
+            <div className="h-4 w-px bg-surface-border hidden xs:block" />
 
-            {/* Zoom Controls with + - and percentage indicator */}
-            <div className="flex items-center bg-surface-subtle border border-surface-border rounded-lg p-0.5">
+            {/* Zoom Controls */}
+            <div className="flex items-center bg-surface-subtle border border-surface-border rounded-control p-0.5">
               <button
                 type="button"
                 onClick={handleZoomOut}
                 disabled={interactiveScale <= MIN_SCALE}
-                className="p-1 rounded text-text-muted hover:text-text-main hover:bg-surface-panel disabled:opacity-30 cursor-pointer transition-colors"
+                className="min-w-[32px] min-h-[32px] inline-flex items-center justify-center rounded-control text-text-muted hover:text-text-main hover:bg-surface-hover disabled:text-text-disabled cursor-pointer transition-colors"
                 title="Zoom out (Ctrl -)"
                 aria-label="Zoom out"
               >
                 <Minus className="w-3.5 h-3.5" />
               </button>
 
-              <span
+              <button
+                type="button"
                 onClick={() => {
                   setFitMode(null);
                   setInteractiveScale(1.0);
@@ -1728,17 +1695,18 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                   RenderQueue.getInstance().cancelForScaleChange(1.0);
                   updateVisibleRange(undefined, 1.0);
                 }}
-                className="font-mono text-xs font-semibold px-2 text-text-main cursor-pointer hover:text-accent select-none min-w-[48px] text-center"
+                className="font-mono text-xs font-semibold px-2 min-h-[32px] text-text-main cursor-pointer hover:text-accent select-none min-w-[48px] text-center rounded-control"
                 title="Click to reset to 100%"
+                aria-label="Reset zoom to 100%"
               >
                 {Math.round(interactiveScale * 100)}%
-              </span>
+              </button>
 
               <button
                 type="button"
                 onClick={handleZoomIn}
                 disabled={interactiveScale >= MAX_SCALE}
-                className="p-1 rounded text-text-muted hover:text-text-main hover:bg-surface-panel disabled:opacity-30 cursor-pointer transition-colors"
+                className="min-w-[32px] min-h-[32px] inline-flex items-center justify-center rounded-control text-text-muted hover:text-text-main hover:bg-surface-hover disabled:text-text-disabled cursor-pointer transition-colors"
                 title="Zoom in (Ctrl +)"
                 aria-label="Zoom in"
               >
@@ -1746,28 +1714,28 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
               </button>
             </div>
 
-            {/* Fit to Page & Fit to Width in a Single Toggle Button */}
+            {/* Fit to Page / Width Toggle */}
             <button
               type="button"
               onClick={handleToggleFit}
-              className={`p-1.5 rounded-lg border transition-all cursor-pointer flex items-center gap-1.5 text-xs ${
+              className={`min-h-[36px] px-2.5 rounded-control border transition-colors cursor-pointer flex items-center gap-1.5 text-xs ${
                 fitMode
-                  ? 'bg-surface-subtle border-accent text-accent shadow-xs'
-                  : 'bg-surface-panel border-surface-border text-text-muted hover:text-text-main hover:border-surface-border-strong'
+                  ? 'bg-accent text-accent-contrast border-accent font-semibold'
+                  : 'bg-surface-panel border-surface-border text-text-muted hover:text-text-main hover:bg-surface-hover'
               }`}
               title={
                 fitMode === 'width'
                   ? 'Currently Fit to Width. Click to Fit to Page.'
                   : 'Currently Fit to Page. Click to Fit to Width.'
               }
-              aria-label="Toggle Fit to Width / Fit to Page"
+              aria-label="Toggle Fit to Width or Fit to Page"
             >
               {fitMode === 'width' ? (
                 <Maximize2 className="w-3.5 h-3.5" />
               ) : (
                 <Minimize2 className="w-3.5 h-3.5" />
               )}
-              <span className="hidden xl:inline font-medium text-[11px]">
+              <span className="hidden xl:inline font-medium">
                 {fitMode === 'width' ? 'Fit Page' : 'Fit Width'}
               </span>
             </button>
@@ -1784,10 +1752,10 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                   setTimeout(() => searchInputRef.current?.focus(), 50);
                 }
               }}
-              className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+              className={`min-w-[36px] min-h-[36px] inline-flex items-center justify-center rounded-control border transition-colors cursor-pointer ${
                 isSearchOpen
-                  ? 'bg-surface-subtle border-accent text-accent'
-                  : 'bg-surface-panel border-surface-border text-text-muted hover:text-text-main hover:border-surface-border-strong'
+                  ? 'bg-accent text-accent-contrast border-accent'
+                  : 'bg-surface-panel border-surface-border text-text-muted hover:text-text-main hover:bg-surface-hover'
               }`}
               title="Find text in PDF (Ctrl+F)"
               aria-label="Find text"
@@ -1800,11 +1768,11 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
               type="button"
               onClick={handleSave}
               disabled={!pdfBlob || isSaving}
-              className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-surface-border bg-surface-panel text-text-main hover:border-accent hover:text-accent hover:bg-surface-subtle transition-all cursor-pointer flex items-center gap-1.5 text-xs disabled:opacity-40"
+              className="min-h-[36px] px-2.5 rounded-control border border-surface-border bg-surface-panel text-text-main hover:bg-surface-hover transition-colors cursor-pointer flex items-center gap-1.5 text-xs disabled:bg-surface-disabled disabled:text-text-disabled"
               title="Save PDF"
               aria-label="Save PDF"
             >
-              {isSaving ? <Loader2 className="w-4 h-4 animate-spin text-accent" /> : <Download className="w-4 h-4" />}
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               <span className="hidden lg:inline font-medium">Save</span>
             </button>
 
@@ -1818,11 +1786,11 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                   }
                 }}
                 disabled={!pdfBlob}
-                className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-accent/40 bg-accent-subtle/40 text-accent hover:bg-accent-subtle hover:border-accent transition-all cursor-pointer flex items-center gap-1.5 text-xs font-medium disabled:opacity-40"
+                className="min-h-[36px] px-2.5 rounded-control border border-surface-border bg-surface-subtle text-text-main hover:bg-surface-hover hover:border-surface-border-strong transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-medium disabled:bg-surface-disabled disabled:text-text-disabled"
                 title="Compress PDF"
                 aria-label="Compress PDF"
               >
-                <Minimize2 className="w-4 h-4" />
+                <Minimize2 className="w-4 h-4 text-accent" />
                 <span className="hidden lg:inline">Compress</span>
               </button>
             )}
@@ -1832,7 +1800,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
               type="button"
               onClick={handlePrint}
               disabled={!pdfBlob}
-              className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-surface-border bg-surface-panel text-text-main hover:border-accent hover:text-accent hover:bg-surface-subtle transition-all cursor-pointer flex items-center gap-1.5 text-xs disabled:opacity-40"
+              className="min-h-[36px] px-2.5 rounded-control border border-surface-border bg-surface-panel text-text-main hover:bg-surface-hover transition-colors cursor-pointer flex items-center gap-1.5 text-xs disabled:bg-surface-disabled disabled:text-text-disabled"
               title="Print PDF (Ctrl+P)"
               aria-label="Print PDF"
             >
@@ -1841,11 +1809,11 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
             </button>
 
             {/* Desktop Close Button (Esc) */}
-            <div className="h-4 w-[1px] bg-surface-border mx-0.5" />
+            <div className="h-4 w-px bg-surface-border mx-0.5" />
             <button
               type="button"
               onClick={handleModalClose}
-              className="p-1.5 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
+              className="min-w-[36px] min-h-[36px] inline-flex items-center justify-center rounded-control text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors cursor-pointer"
               title="Close viewer (Esc)"
               aria-label="Close viewer"
             >
@@ -1854,31 +1822,32 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
           </div>
         </header>
       ) : (
-        /* Mobile Top Header Bar (Preserved exactly for mobile devices!) */
-        <header className="w-full bg-surface-panel border-b border-surface-border px-3 sm:px-5 py-2.5 flex items-center justify-between shrink-0 pt-[var(--safe-area-top)] shadow-xs relative z-30">
+        /* Mobile Top Header Bar */
+        <header className="w-full bg-surface-panel border-b border-surface-border px-3 sm:px-5 py-2 flex items-center justify-between shrink-0 pt-[max(0.5rem,var(--safe-area-top))] relative z-30">
           {/* Left: Back Button & Document Title */}
-          <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
             <button
               type="button"
               onClick={handleModalClose}
-              className="p-2 rounded-full hover:bg-surface-subtle text-text-main transition-colors cursor-pointer shrink-0 active:scale-95"
+              className="min-h-[44px] px-2.5 rounded-control hover:bg-surface-hover text-text-main transition-colors cursor-pointer shrink-0 inline-flex items-center gap-1.5 text-xs font-medium"
               title="Back"
               aria-label="Back"
             >
-              <ArrowLeft className="w-5 h-5" />
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back</span>
             </button>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="font-semibold text-sm text-text-main truncate max-w-[140px] xs:max-w-[180px] sm:max-w-xs md:max-w-md">
+                <h1 className="font-mono font-semibold text-sm text-text-main truncate max-w-[140px] xs:max-w-[180px] sm:max-w-xs md:max-w-md">
                   {fileName}
                 </h1>
                 {isCompressed && (
-                  <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-accent-subtle text-accent border border-accent-border">
+                  <span className="shrink-0 px-2 py-0.5 rounded-chip text-xs font-mono font-semibold bg-accent text-accent-contrast">
                     Compressed
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-text-muted font-mono truncate">
+              <p className="text-xs text-text-muted font-mono truncate">
                 {totalPages > 0 ? `Page ${currentPage} of ${totalPages}` : 'Loading...'}
                 {pdfBlob && ` • ${formatBytes(pdfBlob.size)}`}
               </p>
@@ -1892,10 +1861,10 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
               <button
                 type="button"
                 onClick={() => setIsMenuOpen((prev) => !prev)}
-                className={`p-2 rounded-lg border transition-all cursor-pointer shadow-2xs ${
+                className={`min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control border transition-colors cursor-pointer ${
                   isMenuOpen
-                    ? 'bg-surface-subtle border-accent text-accent'
-                    : 'bg-surface-panel border-surface-border text-text-main hover:bg-surface-subtle hover:border-accent hover:text-accent'
+                    ? 'bg-surface-hover border-accent text-accent'
+                    : 'bg-surface-panel border-surface-border text-text-main hover:bg-surface-hover'
                 }`}
                 title="More options"
                 aria-label="More options"
@@ -1906,7 +1875,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
 
               {/* Three-Dot Dropdown Menu */}
               {isMenuOpen && (
-                <div className="absolute right-0 top-full mt-2 w-48 rounded-xl bg-surface-panel border border-surface-border shadow-xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute right-0 top-full mt-2 w-48 rounded-sheet bg-surface-panel border border-surface-border shadow-lifted p-1.5 z-50">
                   {/* 1. Share */}
                   <button
                     type="button"
@@ -1915,7 +1884,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                       handleShare();
                     }}
                     disabled={!pdfBlob || isSharing}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-text-main hover:bg-surface-subtle hover:text-accent transition-colors cursor-pointer disabled:opacity-40"
+                    className="w-full min-h-[44px] flex items-center justify-between px-3 rounded-control text-xs font-medium text-text-main hover:bg-surface-hover transition-colors cursor-pointer disabled:text-text-disabled"
                   >
                     <span>Share</span>
                     {isSharing ? (
@@ -1933,7 +1902,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                       handleSave();
                     }}
                     disabled={!pdfBlob || isSaving}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-text-main hover:bg-surface-subtle hover:text-accent transition-colors cursor-pointer disabled:opacity-40"
+                    className="w-full min-h-[44px] flex items-center justify-between px-3 rounded-control text-xs font-medium text-text-main hover:bg-surface-hover transition-colors cursor-pointer disabled:text-text-disabled"
                   >
                     <span>Save</span>
                     {isSaving ? (
@@ -1950,7 +1919,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                       setIsMenuOpen(false);
                       setIsSearchOpen(true);
                     }}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-text-main hover:bg-surface-subtle hover:text-accent transition-colors cursor-pointer"
+                    className="w-full min-h-[44px] flex items-center justify-between px-3 rounded-control text-xs font-medium text-text-main hover:bg-surface-hover transition-colors cursor-pointer"
                   >
                     <span>Find</span>
                     <Search className="w-4 h-4 text-text-muted" />
@@ -1967,9 +1936,9 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                         onCompress(pdfBlob, fileName);
                       }
                     }}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-accent hover:bg-accent-subtle transition-colors cursor-pointer"
+                    className="w-full min-h-[44px] flex items-center justify-between px-3 rounded-control text-xs font-semibold text-text-main hover:bg-surface-hover transition-colors cursor-pointer"
                   >
-                    <span className="font-semibold">Compress</span>
+                    <span>Compress</span>
                     <Minimize2 className="w-4 h-4 text-accent" />
                   </button>
                 </div>
@@ -1981,10 +1950,10 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
 
       {/* Main Content Area: Left Thumbnail Sidebar (Desktop) + Central Native Scroll Area */}
       <div className="flex-1 min-h-0 flex flex-row overflow-hidden relative">
-        {/* Floating Minimalist Find Dialogue (Chrome / Edge style — Image 3) */}
+        {/* Floating Find Dialogue */}
         {isSearchOpen && (
           <div
-            className="absolute top-3 right-4 sm:right-6 z-40 flex items-center bg-[#252526] dark:bg-[#1e1e1e] text-neutral-100 rounded-lg shadow-2xl border border-white/10 px-3 py-1.5 gap-2 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100"
+            className="absolute top-3 right-4 sm:right-6 z-40 flex items-center bg-surface-panel text-text-main rounded-sheet shadow-lifted border border-surface-border px-3 py-1.5 gap-2"
             role="search"
             aria-label="Find in document"
           >
@@ -2010,11 +1979,11 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                 }
               }}
               placeholder="Find in document..."
-              className="w-32 sm:w-44 bg-transparent text-xs text-white placeholder:text-neutral-400 focus:outline-none"
+              className="w-32 sm:w-44 bg-transparent text-xs text-text-main placeholder:text-text-faint focus:outline-none"
               autoFocus
             />
 
-            <span className="text-[11px] font-mono text-neutral-400 shrink-0 min-w-[28px] text-right select-none">
+            <span className="text-xs font-mono text-text-muted shrink-0 min-w-[28px] text-right select-none">
               {isSearching
                 ? '...'
                 : matches.length > 0
@@ -2024,14 +1993,14 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                 : ''}
             </span>
 
-            <div className="w-px h-3.5 bg-neutral-600/70 shrink-0 mx-0.5" />
+            <div className="w-px h-4 bg-surface-border shrink-0 mx-0.5" />
 
             <div className="flex items-center gap-0.5 shrink-0">
               <button
                 type="button"
                 onClick={handlePrevMatch}
                 disabled={matches.length === 0}
-                className="p-1 rounded hover:bg-white/10 text-neutral-300 hover:text-white disabled:opacity-30 cursor-pointer transition-colors"
+                className="min-w-[32px] min-h-[32px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover text-text-muted hover:text-text-main disabled:text-text-disabled cursor-pointer transition-colors"
                 title="Previous match (Shift+Enter)"
                 aria-label="Previous match"
               >
@@ -2041,7 +2010,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                 type="button"
                 onClick={handleNextMatch}
                 disabled={matches.length === 0}
-                className="p-1 rounded hover:bg-white/10 text-neutral-300 hover:text-white disabled:opacity-30 cursor-pointer transition-colors"
+                className="min-w-[32px] min-h-[32px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover text-text-muted hover:text-text-main disabled:text-text-disabled cursor-pointer transition-colors"
                 title="Next match (Enter)"
                 aria-label="Next match"
               >
@@ -2055,7 +2024,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                   setMatches([]);
                   setHighlightsByPage(new Map());
                 }}
-                className="p-1 rounded hover:bg-white/10 text-neutral-400 hover:text-white cursor-pointer transition-colors"
+                className="min-w-[32px] min-h-[32px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover text-text-muted hover:text-text-main cursor-pointer transition-colors"
                 title="Close (Esc)"
                 aria-label="Close find"
               >
@@ -2080,7 +2049,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
         <div
           ref={containerRef}
           onScroll={handleScroll}
-          className="flex-1 min-h-0 overflow-y-auto overflow-x-auto bg-surface-subtle/50 relative select-none"
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-auto bg-surface-subtle relative select-none"
           style={{
             WebkitOverflowScrolling: 'touch',
             overscrollBehavior: 'contain',
@@ -2103,7 +2072,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
             <button
               type="button"
               onClick={handleModalClose}
-              className="mt-2 px-4 py-2 rounded-lg bg-accent text-white text-xs font-semibold shadow-sm cursor-pointer"
+              className="mt-2 min-h-[44px] px-5 rounded-control bg-accent hover:bg-accent-hover text-accent-contrast text-sm font-semibold cursor-pointer transition-colors"
             >
               Return
             </button>
@@ -2187,10 +2156,12 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
       {/* Floating Fast-Scroll Scrubber Pill & Drag Handle (Mobile Only) */}
       {!isDesktop && pdfDoc && totalPages > 0 && (
         <div
+          ref={scrubberRef}
           style={{
             position: 'fixed',
             right: 4,
-            top: `${scrubberTop}px`,
+            top: 0,
+            transform: 'translate3d(0, 70px, 0)',
             touchAction: 'none',
           }}
           className={`z-40 flex items-center pr-1 transition-opacity duration-300 select-none ${
@@ -2712,7 +2683,7 @@ const PdfPageCanvasComponent: React.FC<PdfPageCanvasProps> = ({
         )}
 
         {renderState === 'failed' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-surface-subtle/50 select-none">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-surface-subtle select-none">
             <span className="text-[11px] text-status-error font-medium">Failed to render</span>
           </div>
         )}

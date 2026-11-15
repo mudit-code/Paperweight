@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>Paperweight — Private Offline Document & Image Workspace</title>
+    <title>Private Offline Document & Image Workspace</title>
     
     <!-- Strict Privacy CSP: connect-src 'none' guarantees zero external network requests -->
     <meta
@@ -12,7 +12,7 @@
     />
     
     <meta name="description" content="Runs fully on your device. Fast, zero-network document and image toolkit." />
-    <meta name="theme-color" content="#171615" />
+    <meta name="theme-color" content="#151517" />
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
@@ -23,20 +23,30 @@
       html, body {
         margin: 0;
         padding: 0;
-        background-color: #141312;
+        width: 100%;
+        height: 100%;
+        height: 100dvh;
+        overflow: hidden;
+        overscroll-behavior: none;
+        background-color: #151517;
+      }
+      #root {
+        width: 100%;
+        height: 100%;
+        height: 100dvh;
+        overflow: hidden;
       }
       html.light, html.light body {
-        background-color: #fbfaf8 !important;
+        background-color: #E9E8E4 !important;
       }
       html.dark, html.dark body {
-        background-color: #141312 !important;
+        background-color: #151517 !important;
       }
     </style>
 
-    <!-- Inline pre-paint script: initialize safe areas immediately and eliminate theme flash (FOUT) -->
+    <!-- Inline pre-paint script: initialize safe areas immediately and eliminate theme flash -->
     <script>
       (function() {
-        // If running in Android, ensure safe areas are set immediately so there is zero overlap
         if (/android/i.test(navigator.userAgent)) {
           var defaultTop = 36;
           try {
@@ -49,7 +59,6 @@
           } catch (e) {}
           document.documentElement.style.setProperty('--safe-area-inset-top', defaultTop + 'px');
 
-          // Ensure webview caches are flushed so updated builds load instantly
           if (typeof window !== 'undefined' && 'caches' in window) {
             try {
               caches.keys().then(function(names) {
@@ -62,16 +71,20 @@
         try {
           var saved = localStorage.getItem('paperweight-theme');
           var systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-          var theme = saved === 'light' || saved === 'dark' ? saved : (systemDark ? 'dark' : 'light');
+          var theme = saved === 'light' || saved === 'dark'
+            ? saved
+            : saved === 'system'
+            ? (systemDark ? 'dark' : 'light')
+            : 'dark';
           var isDark = theme === 'dark';
           if (isDark) {
             document.documentElement.classList.add('dark');
             document.documentElement.classList.remove('light');
-            document.documentElement.style.backgroundColor = '#141312';
+            document.documentElement.style.backgroundColor = '#151517';
           } else {
             document.documentElement.classList.remove('dark');
             document.documentElement.classList.add('light');
-            document.documentElement.style.backgroundColor = '#fbfaf8';
+            document.documentElement.style.backgroundColor = '#E9E8E4';
           }
           document.documentElement.setAttribute('data-theme', theme);
           if (window.AndroidBridge && typeof window.AndroidBridge.setAppTheme === 'function') {
@@ -83,7 +96,7 @@
         } catch (e) {
           document.documentElement.classList.add('dark');
           document.documentElement.setAttribute('data-theme', 'dark');
-          document.documentElement.style.backgroundColor = '#141312';
+          document.documentElement.style.backgroundColor = '#151517';
           if (window.AndroidBridge && typeof window.AndroidBridge.setAppTheme === 'function') {
             window.AndroidBridge.setAppTheme(true);
           }
@@ -91,7 +104,7 @@
       })();
     </script>
   </head>
-  <body class="bg-surface-bg text-text-main antialiased selection:bg-accent/20 selection:text-accent">
+  <body class="bg-surface-bg text-text-main antialiased selection:bg-accent selection:text-accent-contrast">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

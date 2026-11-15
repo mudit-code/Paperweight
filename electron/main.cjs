@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain, nativeTheme } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, nativeTheme, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -117,26 +117,64 @@ ipcMain.handle('get-initial-files', () => {
   return items;
 });
 
+ipcMain.handle('get-system-is-dark', () => {
+  return nativeTheme.shouldUseDarkColors;
+});
+
 // Sync native OS titlebar and window border with dark / light mode
-ipcMain.on('theme-changed', (_event, theme) => {
+ipcMain.on('theme-changed', (event, theme) => {
   if (theme === 'dark' || theme === 'light' || theme === 'system') {
     nativeTheme.themeSource = theme;
+    const isDark = nativeTheme.shouldUseDarkColors;
     if (mainWindow && !mainWindow.isDestroyed()) {
-      const isDark = theme === 'dark' || (theme === 'system' && nativeTheme.shouldUseDarkColors);
       mainWindow.setBackgroundColor(isDark ? '#141312' : '#fbfaf8');
+      mainWindow.webContents.send('system-theme-updated', isDark);
     }
+    event.sender.send('system-theme-updated', isDark);
   }
 });
 
+nativeTheme.on('updated', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const isDark = nativeTheme.shouldUseDarkColors;
+    mainWindow.setBackgroundColor(isDark ? '#141312' : '#fbfaf8');
+    mainWindow.webContents.send('system-theme-updated', isDark);
+  }
+});
+
+const BASE_WINDOW_TITLE = 'Private Offline Document & Image Workspace';
+
+function updateCenteredTitle(win) {
+  if (!win || win.isDestroyed()) return;
+  try {
+    const [width] = win.getSize();
+    // Center title text in native OS title bar dynamically
+    const targetOffset = Math.max(0, Math.floor((width - 320) / 2 - 30));
+    const spaceCount = Math.floor(targetOffset / 4.2);
+    const padded = '\u00A0'.repeat(spaceCount) + BASE_WINDOW_TITLE;
+    win.setTitle(padded);
+  } catch {}
+}
+
 function createWindow() {
   const isDark = nativeTheme.shouldUseDarkColors;
+  const blankIconPath = path.join(__dirname, 'blank.ico');
+  const blankTitleBarIcon = fs.existsSync(blankIconPath)
+    ? nativeImage.createFromPath(blankIconPath)
+    : nativeImage.createFromBuffer(
+        Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAEklEQVR42mNk+M9AFDAwoB8A6VUB/6YpT8AAAAAElFTkSuQmCC',
+          'base64'
+        )
+      );
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
     minWidth: 800,
     minHeight: 560,
-    title: 'Paperweight — Private Offline Document & Image Workspace',
-    icon: path.join(__dirname, '..', 'build-resources', 'icon.png'),
+    title: BASE_WINDOW_TITLE,
+    icon: blankTitleBarIcon,
     autoHideMenuBar: true,
     backgroundColor: isDark ? '#141312' : '#fbfaf8',
     webPreferences: {
@@ -147,6 +185,13 @@ function createWindow() {
     },
     show: false,
   });
+
+  mainWindow.setIcon(blankTitleBarIcon);
+  updateCenteredTitle(mainWindow);
+
+  mainWindow.on('resize', () => updateCenteredTitle(mainWindow));
+  mainWindow.on('maximize', () => setTimeout(() => updateCenteredTitle(mainWindow), 50));
+  mainWindow.on('unmaximize', () => setTimeout(() => updateCenteredTitle(mainWindow), 50));
 
   // Load the Vite-built index.html from the dist folder
   mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));

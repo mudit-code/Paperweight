@@ -23,7 +23,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch {
       // Storage access disabled
     }
-    return 'system';
+    return 'dark';
   });
 
   const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => {
@@ -35,10 +35,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const root = document.documentElement;
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
-    const applyTheme = () => {
-      const isDark =
-        theme === 'dark' || (theme === 'system' && mediaQuery.matches);
-      
+    const updateDOMTheme = (isDark: boolean) => {
       if (isDark) {
         root.classList.add('dark');
         root.setAttribute('data-theme', 'dark');
@@ -50,13 +47,9 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           const bridge = (window as unknown as { AndroidBridge?: { setAppTheme?: (isDark: boolean) => void } }).AndroidBridge;
           bridge?.setAppTheme?.(true);
         } catch {}
-        try {
-          const electron = (window as unknown as { electronAPI?: { setTheme?: (theme: string) => void } }).electronAPI;
-          electron?.setTheme?.('dark');
-        } catch {}
         const themeColorMeta = document.querySelector('meta[name="theme-color"]');
         if (themeColorMeta) {
-          themeColorMeta.setAttribute('content', '#1b1a18');
+          themeColorMeta.setAttribute('content', '#1F1F22');
         }
       } else {
         root.classList.remove('dark');
@@ -69,18 +62,56 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           const bridge = (window as unknown as { AndroidBridge?: { setAppTheme?: (isDark: boolean) => void } }).AndroidBridge;
           bridge?.setAppTheme?.(false);
         } catch {}
-        try {
-          const electron = (window as unknown as { electronAPI?: { setTheme?: (theme: string) => void } }).electronAPI;
-          electron?.setTheme?.('light');
-        } catch {}
         const themeColorMeta = document.querySelector('meta[name="theme-color"]');
         if (themeColorMeta) {
-          themeColorMeta.setAttribute('content', '#ffffff');
+          themeColorMeta.setAttribute('content', '#E9E8E4');
         }
       }
     };
 
+    // Listen to native Electron theme updates
+    let unsubscribeElectron: (() => void) | undefined;
+    try {
+      const electron = (window as unknown as {
+        electronAPI?: {
+          onSystemThemeUpdated?: (cb: (isDark: boolean) => void) => () => void;
+          getSystemIsDark?: () => Promise<boolean>;
+          setTheme?: (theme: string) => void;
+        };
+      }).electronAPI;
+
+      electron?.setTheme?.(theme);
+
+      if (electron?.onSystemThemeUpdated) {
+        unsubscribeElectron = electron.onSystemThemeUpdated((isDark) => {
+          if (theme === 'system') {
+            updateDOMTheme(isDark);
+          }
+        });
+      }
+    } catch {}
+
+    const applyTheme = () => {
+      const isDark =
+        theme === 'dark' || (theme === 'system' && mediaQuery.matches);
+      updateDOMTheme(isDark);
+    };
+
     applyTheme();
+
+    // Query Electron directly if in system mode to get instant sync
+    if (theme === 'system') {
+      try {
+        const electron = (window as unknown as {
+          electronAPI?: { getSystemIsDark?: () => Promise<boolean> };
+        }).electronAPI;
+        electron?.getSystemIsDark?.().then((isDark) => {
+          if (typeof isDark === 'boolean') {
+            updateDOMTheme(isDark);
+          }
+        }).catch(() => {});
+      } catch {}
+    }
 
     const handleChange = () => {
       if (theme === 'system') {
@@ -89,7 +120,10 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
+    return () => {
+      mediaQuery.removeEventListener('change', handleChange);
+      unsubscribeElectron?.();
+    };
   }, [theme]);
 
   const setTheme = (mode: ThemeMode) => {
@@ -99,6 +133,10 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch {
       // Ignore storage errors in restricted contexts
     }
+    try {
+      const electron = (window as unknown as { electronAPI?: { setTheme?: (theme: string) => void } }).electronAPI;
+      electron?.setTheme?.(mode);
+    } catch {}
   };
 
   return (

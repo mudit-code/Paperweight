@@ -6,7 +6,6 @@ import {
   FileArchive,
   Image as ImageIcon,
   FileCode,
-  X,
   ExternalLink,
   TrendingDown,
 } from 'lucide-react';
@@ -18,13 +17,13 @@ import { Badge } from './Badge';
 
 export interface ResultCardProps {
   result: BatchResult;
-  onDismiss: () => void;
+  onDismiss?: () => void;
   className?: string;
 }
 
 export const ResultCard: React.FC<ResultCardProps> = ({
   result,
-  onDismiss,
+  onDismiss: _onDismiss,
   className = '',
 }) => {
   const isMobile = isMobileApp();
@@ -47,13 +46,17 @@ export const ResultCard: React.FC<ResultCardProps> = ({
     switch (result.fileType) {
       case 'pdf':
       case 'document':
-        return <FileText className="w-6 h-6 text-accent" />;
+        return <FileText className="w-5 h-5 text-text-main" />;
       case 'zip':
-        return isMobile ? <ImageIcon className="w-6 h-6 text-accent" /> : <FileArchive className="w-6 h-6 text-accent" />;
+        return isMobile ? (
+          <ImageIcon className="w-5 h-5 text-text-main" />
+        ) : (
+          <FileArchive className="w-5 h-5 text-text-main" />
+        );
       case 'image':
-        return <ImageIcon className="w-6 h-6 text-accent" />;
+        return <ImageIcon className="w-5 h-5 text-text-main" />;
       default:
-        return <FileCode className="w-6 h-6 text-accent" />;
+        return <FileCode className="w-5 h-5 text-text-main" />;
     }
   };
 
@@ -73,36 +76,32 @@ export const ResultCard: React.FC<ResultCardProps> = ({
     <div
       role="region"
       aria-label="Processing Result"
-      className={`relative overflow-hidden rounded-xl bg-surface-panel border border-accent-border shadow-panel p-5 transition-all animate-in fade-in slide-in-from-top-2 duration-300 ${className}`}
+      className={`paper-sheet p-5 transition-colors duration-fast ease-out ${className}`}
     >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        {/* Left Side: Icon & Details */}
+        {/* Left Side: Output Sheet Details */}
         <div className="flex items-start sm:items-center gap-3.5 min-w-0">
-          <div className="p-3 rounded-lg bg-accent-subtle text-accent border border-accent-border shrink-0">
+          <div className="w-11 h-11 rounded-control bg-surface-subtle border border-surface-border flex items-center justify-center shrink-0">
             {getFileIcon()}
           </div>
 
           <div className="space-y-1.5 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="flex items-center gap-1.5 text-xs font-semibold text-accent">
-                <CheckCircle2 className="w-4 h-4" />
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-status-success">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
                 Processed Successfully
               </span>
-              <Badge size="sm" variant="accent">
+              <Badge size="sm" variant="neutral">
                 {displayBadge}
               </Badge>
               {hasSavings && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-accent-subtle text-accent border border-accent-border">
-                  <TrendingDown className="w-3 h-3" />
-                  -{result.savingsPercent}% reduction
-                </span>
+                <Badge size="sm" variant="success" icon={<TrendingDown className="w-3 h-3" />}>
+                  -{result.savingsPercent}%
+                </Badge>
               )}
             </div>
 
-            <p
-              className="text-sm sm:text-base font-serif font-bold text-text-main truncate"
-              title={displayTitle}
-            >
+            <p className="text-md font-bold font-mono text-text-main truncate" title={displayTitle}>
               {displayTitle}
             </p>
 
@@ -120,7 +119,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({
               ) : (
                 <span>{formatBytes(result.size)}</span>
               )}
-              <span>•</span>
+              <span>·</span>
               <span>
                 {result.itemCount} {result.itemCount === 1 ? 'item' : 'items'}
               </span>
@@ -129,7 +128,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({
         </div>
 
         {/* Right Side: Action Buttons */}
-        <div className="flex items-center gap-2.5 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-surface-border">
+        <div className="flex items-center gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-surface-border">
           <Button
             variant="primary"
             size="md"
@@ -137,7 +136,6 @@ export const ResultCard: React.FC<ResultCardProps> = ({
             isLoading={isSavingAll}
             onClick={handleDownload}
             leftIcon={<Save className="w-4 h-4" />}
-            className="font-medium shadow-md"
           >
             {isMobile && result.items && result.items.length > 1 ? 'Save All' : 'Save File'}
           </Button>
@@ -147,23 +145,11 @@ export const ResultCard: React.FC<ResultCardProps> = ({
               variant="secondary"
               size="md"
               onClick={() => window.open(result.downloadUrl, '_blank')}
-              leftIcon={<ExternalLink className="w-3.5 h-3.5" />}
-              className="text-xs"
-              title="Open PDF in new tab"
+              leftIcon={<ExternalLink className="w-4 h-4" />}
             >
-              Preview
+              Open
             </Button>
           )}
-
-          <button
-            type="button"
-            onClick={onDismiss}
-            className="p-2 rounded-md text-text-faint hover:text-text-main hover:bg-surface-subtle transition-colors"
-            aria-label="Dismiss result"
-            title="Dismiss"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
       </div>
     </div>

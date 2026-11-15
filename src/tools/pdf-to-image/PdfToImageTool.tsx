@@ -17,6 +17,8 @@ const PdfToImageTool: React.FC<ToolProps> = ({
   onDismissError,
   onExecute,
   onCancel,
+  onViewFile,
+  onViewImages,
 }) => {
   const currentFormat = ((options.format as string) || 'png').toUpperCase();
 
@@ -27,7 +29,7 @@ const PdfToImageTool: React.FC<ToolProps> = ({
         <div className="flex items-center justify-between gap-4">
           <div className="space-y-0.5">
             <div className="flex items-center gap-2.5">
-              <h1 className="text-xl sm:text-2xl font-serif font-bold text-text-main tracking-tight">
+              <h1 className="text-lg sm:text-xl font-semibold text-text-main tracking-tight">
                 PDF to Image
               </h1>
               <Badge variant="accent" size="sm">
@@ -39,15 +41,15 @@ const PdfToImageTool: React.FC<ToolProps> = ({
             </p>
           </div>
 
-          {/* Format pills */}
-          <div className="inline-flex items-center p-1 rounded-full bg-surface-subtle border border-surface-border-subtle shadow-xs shrink-0">
-            <span className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-accent-subtle text-accent border border-accent-border">
-              <FileText className="w-3 h-3" />
+          {/* Format chips */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-mono font-medium rounded-chip bg-surface-subtle text-text-main border border-surface-border">
+              <FileText className="w-3.5 h-3.5 text-text-muted" />
               PDF
             </span>
-            <span className="text-text-faint px-1 text-xs">&rarr;</span>
-            <span className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-surface-panel text-text-main border border-surface-border">
-              <FileImage className="w-3 h-3" />
+            <span className="text-text-muted text-xs font-mono">&rarr;</span>
+            <span className="flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-mono font-medium rounded-chip bg-surface-panel text-text-main border border-surface-border">
+              <FileImage className="w-3.5 h-3.5 text-text-muted" />
               {currentFormat}
             </span>
           </div>
@@ -85,9 +87,13 @@ const PdfToImageTool: React.FC<ToolProps> = ({
           </div>
         )}
 
-        {/* Progress Bar */}
+        {/* Progress Bar Overlay (matching Resizer) */}
         {isProcessing && progress && (
-          <ProgressBar progress={progress} onCancel={onCancel} />
+          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 select-none animate-in fade-in">
+            <div className="w-full max-w-sm p-4 sm:p-5 rounded-sheet bg-surface-panel border border-surface-border shadow-lifted space-y-3">
+              <ProgressBar progress={progress} onCancel={onCancel} />
+            </div>
+          </div>
         )}
 
         {/* Dedicated PDF to Image Showcase */}
@@ -104,6 +110,8 @@ const PdfToImageTool: React.FC<ToolProps> = ({
           result={result}
           onDismissResult={onDismissResult}
           onExecute={onExecute}
+          onViewFile={onViewFile}
+          onViewImages={onViewImages}
         />
       </div>
     </div>

@@ -16,12 +16,15 @@ import {
   Search,
   Eye,
   Menu,
-  Settings,
   X,
   Check,
   Play,
   FileClock,
-  Sparkles,
+  Clock,
+  ArrowLeft,
+  Share2,
+  ChevronDown,
+  Loader2,
 } from 'lucide-react';
 import {
   getLibraryAssets,
@@ -33,10 +36,11 @@ import {
 } from '../../core/library/library-db';
 import type { ProcessedFile } from '../../core/types';
 import { formatBytes } from '../../core/files/validation';
-import { downloadBlob, isMobileApp } from '../../core/processors/download';
+import { downloadBlob, shareMultipleBlobs, isMobileApp } from '../../core/processors/download';
 import { Button } from '../../components/ui/Button';
 
 export interface LibraryViewProps {
+  onBack?: () => void;
   onOpenInTool: (toolId: string, files: ProcessedFile[], options?: Record<string, unknown>) => void;
   onResumeDraft?: (asset: LibraryAsset) => void;
   onViewPdf?: (blob: Blob, name: string) => void;
@@ -105,11 +109,12 @@ function getDraftProcessDetail(asset: LibraryAsset): string {
 }
 
 export const LibraryView: React.FC<LibraryViewProps> = ({
+  onBack,
   onOpenInTool,
   onResumeDraft,
   onViewPdf,
   onViewImages,
-  onOpenSettings,
+  onOpenSettings: _onOpenSettings,
   onToggleSidebar,
   onAssetCountChange,
   className = '',
@@ -124,8 +129,134 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [menuAnchor, setMenuAnchor] = useState<{ id: string; rect: DOMRect } | null>(null);
   const setActiveMenuId = (_val?: string | null) => setMenuAnchor(null);
-  const [isMultiMenuOpen, setIsMultiMenuOpen] = useState<boolean>(false);
+  const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState<boolean>(false);
+  const [isSharing, setIsSharing] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Tap-and-hold & Drag-to-slide selection gesture refs
+  const touchStartPosRef = useRef<{ x: number; y: number; assetId: string } | null>(null);
+  const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isSlidingSelectRef = useRef<boolean>(false);
+  const anchorIndexRef = useRef<number>(-1);
+  const startSelectedIdsRef = useRef<Set<string>>(new Set());
+  const lastSlidIndexRef = useRef<number>(-1);
+  const hasSlidRef = useRef<boolean>(false);
+
+  const handleTouchStartCard = (assetId: string, e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY, assetId };
+    hasSlidRef.current = false;
+
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+
+    const assetIdx = filteredAssets.findIndex((a) => a.id === assetId);
+
+    if (selectedIds.size > 0) {
+      // Already in multi-selection mode:
+      // Start a quick 160ms hold timer or prepare for slide-selection
+      anchorIndexRef.current = assetIdx;
+      startSelectedIdsRef.current = new Set(selectedIds);
+      lastSlidIndexRef.current = assetIdx;
+      touchTimerRef.current = setTimeout(() => {
+        isSlidingSelectRef.current = true;
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          try {
+            navigator.vibrate?.(25);
+          } catch {}
+        }
+        touchTimerRef.current = null;
+      }, 160);
+    } else {
+      // Fresh tap & hold: 240ms triggers selection mode smoothly
+      isSlidingSelectRef.current = false;
+      anchorIndexRef.current = assetIdx;
+      lastSlidIndexRef.current = assetIdx;
+      touchTimerRef.current = setTimeout(() => {
+        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+          try {
+            navigator.vibrate?.(40);
+          } catch {}
+        }
+        const freshSet = new Set([assetId]);
+        setSelectedIds(freshSet);
+        startSelectedIdsRef.current = freshSet;
+        isSlidingSelectRef.current = true;
+        touchTimerRef.current = null;
+      }, 240);
+    }
+  };
+
+  const handleTouchMoveCard = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    if (!touchStartPosRef.current) return;
+
+    const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
+    const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
+
+    // Cancel timer if finger moves > 18px before hold duration finishes (normal vertical scroll)
+    if (touchTimerRef.current && (dx > 18 || dy > 18)) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+      return;
+    }
+
+    // When slide-selection is active
+    if (isSlidingSelectRef.current) {
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+      hasSlidRef.current = true;
+
+      const targetEl = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement | null;
+      const cardEl = targetEl?.closest('[data-asset-id]') as HTMLElement | null;
+      const currentAssetId = cardEl?.dataset.assetId;
+
+      if (!currentAssetId) return;
+
+      const currentIndex = filteredAssets.findIndex((a) => a.id === currentAssetId);
+      const anchorIndex = anchorIndexRef.current;
+
+      if (currentIndex !== -1 && anchorIndex !== -1) {
+        if (currentIndex !== lastSlidIndexRef.current) {
+          lastSlidIndexRef.current = currentIndex;
+          if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+            try {
+              navigator.vibrate?.(15);
+            } catch {}
+          }
+        }
+
+        const minIdx = Math.min(anchorIndex, currentIndex);
+        const maxIdx = Math.max(anchorIndex, currentIndex);
+
+        const next = new Set(startSelectedIdsRef.current);
+        for (let i = minIdx; i <= maxIdx; i++) {
+          const item = filteredAssets[i];
+          if (item) {
+            next.add(item.id);
+          }
+        }
+
+        setSelectedIds(next);
+      }
+    }
+  };
+
+  const handleTouchEndCard = () => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+    touchStartPosRef.current = null;
+    anchorIndexRef.current = -1;
+    lastSlidIndexRef.current = -1;
+    setTimeout(() => {
+      hasSlidRef.current = false;
+      isSlidingSelectRef.current = false;
+    }, 80);
+  };
 
   // Load assets from storage and generate missing PDF thumbnails dynamically
   const loadAssets = async () => {
@@ -179,12 +310,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       const target = e.target as HTMLElement | null;
       if (!target?.closest('[data-library-menu]')) {
         setMenuAnchor(null);
-        setIsMultiMenuOpen(false);
+      }
+      if (!target?.closest('[data-library-category-dropdown]')) {
+        setIsCategoryMenuOpen(false);
       }
     };
     const handleScrollOrResize = () => {
       setMenuAnchor(null);
-      setIsMultiMenuOpen(false);
+      setIsCategoryMenuOpen(false);
     };
     window.addEventListener('click', handleOutsideClick);
     window.addEventListener('scroll', handleScrollOrResize, true);
@@ -267,37 +400,28 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   };
 
   const selectedAssets = assets.filter((a) => selectedIds.has(a.id));
-  const hasImages = selectedAssets.some((a) => a.kind === 'image');
-  const hasPdfs = selectedAssets.some((a) => a.kind === 'pdf');
 
-  // Multi-selection actions
-  const handleMultiMerge = () => {
+  // Multi-selection actions: Share all at once, Delete selected
+  const handleMultiShare = async () => {
     if (selectedAssets.length === 0) return;
-    const processed = selectedAssets.map(assetToProcessedFile);
-    onOpenInTool('pdf-merge', processed);
-  };
-
-  const handleMultiCreatePdf = () => {
-    if (selectedAssets.length === 0) return;
-    const imageAssets = selectedAssets.filter((a) => a.kind === 'image');
-    const processed = imageAssets.map(assetToProcessedFile);
-    onOpenInTool('converter', processed, { converterMode: 'img-to-pdf' });
-  };
-
-  const handleMultiDownload = () => {
-    for (const asset of selectedAssets) {
-      const blob = new Blob([asset.data], { type: asset.type });
-      downloadBlob(blob, asset.name);
+    setIsSharing(true);
+    try {
+      const items = selectedAssets.map((asset) => ({
+        blob: new Blob([asset.data], { type: asset.type }),
+        name: asset.name,
+      }));
+      await shareMultipleBlobs(items);
+    } catch (err) {
+      console.error('Error sharing assets:', err);
+    } finally {
+      setIsSharing(false);
     }
-    setSelectedIds(new Set());
-    setIsMultiMenuOpen(false);
   };
 
   const handleMultiDelete = async () => {
     const ids = Array.from(selectedIds);
     await deleteLibraryAssets(ids);
     setSelectedIds(new Set());
-    setIsMultiMenuOpen(false);
     await loadAssets();
   };
 
@@ -391,9 +515,20 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
       {/* Top Header Bar */}
       <div className="shrink-0 w-full bg-surface-panel border-b border-surface-border text-text-main z-20 pt-[var(--safe-area-top)] pl-[var(--safe-area-left)] pr-[var(--safe-area-right)] transition-[padding] duration-150">
-        <div className="h-14 px-3 sm:px-4 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            {!isMobileApp() && onToggleSidebar && (
+        <div className="h-14 px-3 sm:px-4 flex items-center justify-between gap-2 relative">
+          {/* Leftmost: Back Button */}
+          <div className="flex items-center shrink-0">
+            {onBack ? (
+              <button
+                type="button"
+                onClick={onBack}
+                className="min-h-[44px] min-w-[44px] -ml-2 rounded-control text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer inline-flex items-center justify-center"
+                title="Back"
+                aria-label="Back"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            ) : !isMobileApp() && onToggleSidebar ? (
               <button
                 type="button"
                 onClick={onToggleSidebar}
@@ -403,68 +538,120 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               >
                 <Menu className="w-5 h-5" />
               </button>
+            ) : (
+              <div className="w-9" />
             )}
-            <div className="flex items-center gap-2 truncate">
-              <FolderArchive className="w-4 h-4 text-accent shrink-0" />
-              <h1 className="text-sm font-semibold tracking-tight text-text-main font-serif">
-                Library
-              </h1>
-              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-surface-subtle text-text-muted border border-surface-border">
-                {assets.length} {assets.length === 1 ? 'asset' : 'assets'}
-              </span>
-            </div>
           </div>
 
-          {/* Header Right: Settings & Add */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {onOpenSettings && (
-              <button
-                type="button"
-                onClick={onOpenSettings}
-                className="p-2 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
-                title="Settings & Appearance"
-                aria-label="Settings"
-              >
-                <Settings className="w-4 h-4" />
-              </button>
-            )}
-
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => fileInputRef.current?.click()}
-              leftIcon={<Plus className="w-3.5 h-3.5" />}
-              className="h-8 px-2.5 sm:px-3 text-xs font-semibold shadow-xs"
-            >
-              Add to Library
-            </Button>
+          {/* Center: Library Heading with Icon and Count */}
+          <div className="flex items-center justify-center gap-2">
+            <FolderArchive className="w-5 h-5 text-accent shrink-0" />
+            <h1 className="text-base font-semibold tracking-tight text-text-main">
+              Library
+            </h1>
+            <span className="text-xs font-mono px-2 py-0.5 rounded-chip bg-surface-subtle text-text-muted border border-surface-border">
+              {assets.length}
+            </span>
           </div>
+
+          {/* Right Spacer (no settings) to keep heading perfectly centered */}
+          <div className="w-9 shrink-0" />
         </div>
       </div>
 
-      {/* Library Hierarchy: Top Section Tabs (Recently Processed | Drafts) & Subcategories */}
-      <div className="shrink-0 bg-surface-panel/85 border-b border-surface-border px-3 sm:px-4 pt-2 pb-2.5 space-y-2">
-        {/* Top-Level Section Switcher */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="inline-flex items-center p-0.5 rounded-xl bg-surface-subtle border border-surface-border shadow-2xs">
+      {/* 1. TOP DUAL BAR: When selecting, converts Recents/Drafts into the Selection Bar; otherwise Recents / Drafts */}
+      {selectedIds.size > 0 ? (
+        <div className="shrink-0 bg-surface-panel-raised border-b border-surface-border px-3 sm:px-4 py-2 min-h-[48px] flex items-center justify-between gap-2 text-xs animate-in fade-in">
+          {/* Left: Selected count */}
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-semibold text-accent font-mono text-xs truncate">
+              {selectedIds.size} {selectedIds.size === 1 ? 'selected' : 'selected'}
+            </span>
+          </div>
+
+          {/* Right: Select All icon, Share, Delete, Cross (✕) in that exact order */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Compact Select All icon button (avoids writing long overflowing text) */}
+            <button
+              type="button"
+              onClick={selectAll}
+              className={`h-8 w-8 rounded-control border transition-colors inline-flex items-center justify-center cursor-pointer ${
+                selectedIds.size > 0 && selectedIds.size === filteredAssets.length
+                  ? 'border-accent bg-accent/15 text-accent'
+                  : 'border-surface-border bg-surface-subtle text-text-muted hover:text-text-main hover:bg-surface-hover'
+              }`}
+              title={selectedIds.size === filteredAssets.length ? 'Deselect all' : 'Select all'}
+              aria-label="Select all"
+            >
+              {selectedIds.size > 0 && selectedIds.size === filteredAssets.length ? (
+                <CheckSquare className="w-4 h-4 text-accent" />
+              ) : (
+                <Square className="w-4 h-4" />
+              )}
+            </button>
+
+            {/* Share: shares all selected files at once */}
+            <button
+              type="button"
+              onClick={handleMultiShare}
+              disabled={isSharing}
+              className="h-8 px-2.5 rounded-control border border-surface-border bg-surface-subtle hover:bg-surface-hover text-text-main text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+              title="Share selected files"
+              aria-label="Share selected files"
+            >
+              {isSharing ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-accent shrink-0" />
+              ) : (
+                <Share2 className="w-3.5 h-3.5 shrink-0" />
+              )}
+              <span>Share</span>
+            </button>
+
+            {/* Delete: deletes selected files */}
+            <button
+              type="button"
+              onClick={handleMultiDelete}
+              className="h-8 px-2.5 rounded-control border border-surface-border bg-surface-subtle hover:bg-status-error-bg text-status-error text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Delete selected files"
+              aria-label="Delete selected files"
+            >
+              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+              <span>Delete</span>
+            </button>
+
+            {/* Cross: clear selection and exit selection mode */}
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="h-8 w-8 rounded-control border border-surface-border bg-surface-subtle hover:bg-surface-hover text-text-muted hover:text-text-main inline-flex items-center justify-center transition-colors cursor-pointer"
+              title="Clear selection"
+              aria-label="Clear selection"
+            >
+              <X className="w-4 h-4 shrink-0" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="shrink-0 bg-surface-panel border-b border-surface-border px-3 sm:px-4 py-2 min-h-[48px] flex items-center justify-center">
+          <div className="inline-flex items-center p-0.5 rounded-control bg-surface-subtle border border-surface-border">
             <button
               type="button"
               onClick={() => {
                 setActiveSection('recent');
                 setSelectedIds(new Set());
               }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`min-h-[34px] h-8 flex items-center gap-1.5 px-3 rounded-control text-xs font-semibold transition-colors cursor-pointer ${
                 activeSection === 'recent'
-                  ? 'bg-accent text-accent-contrast shadow-xs'
+                  ? 'bg-accent text-accent-contrast shadow-2xs'
                   : 'text-text-muted hover:text-text-main'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5 shrink-0" />
-              <span>Recently Processed</span>
+              <Clock className="w-3.5 h-3.5 shrink-0" />
+              <span>Recents</span>
               <span
-                className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono leading-none ${
+                className={`px-2 py-0.5 rounded-chip text-xs font-mono leading-none ${
                   activeSection === 'recent'
-                    ? 'bg-black/20 text-white'
+                    ? 'bg-surface-panel text-text-main border border-surface-border'
                     : 'bg-surface-panel text-text-muted border border-surface-border'
                 }`}
               >
@@ -478,18 +665,18 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 setActiveSection('drafts');
                 setSelectedIds(new Set());
               }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              className={`min-h-[34px] h-8 flex items-center gap-1.5 px-3 rounded-control text-xs font-semibold transition-colors cursor-pointer ${
                 activeSection === 'drafts'
-                  ? 'bg-accent text-accent-contrast shadow-xs'
+                  ? 'bg-accent text-accent-contrast shadow-2xs'
                   : 'text-text-muted hover:text-text-main'
               }`}
             >
               <FileClock className="w-3.5 h-3.5 shrink-0" />
               <span>Drafts</span>
               <span
-                className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono leading-none ${
+                className={`px-2 py-0.5 rounded-chip text-xs font-mono leading-none ${
                   activeSection === 'drafts'
-                    ? 'bg-black/20 text-white'
+                    ? 'bg-surface-panel text-text-main border border-surface-border'
                     : 'bg-surface-panel text-text-muted border border-surface-border'
                 }`}
               >
@@ -498,229 +685,100 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             </button>
           </div>
         </div>
-
-        {/* Category Tabs: Compression | Conversion | Merges | Resizes */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-          {CATEGORY_TABS.map((cat) => {
-            const count =
-              cat.id === 'all'
-                ? sectionAssets.length
-                : sectionAssets.filter((a) => a.category === cat.id).length;
-            const isSel = activeCategory === cat.id;
-            return (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => {
-                  setActiveCategory(cat.id);
-                  setSelectedIds(new Set());
-                }}
-                className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all cursor-pointer ${
-                  isSel
-                    ? 'bg-accent/15 text-accent border-accent font-semibold shadow-2xs'
-                    : 'bg-surface-subtle/70 border-surface-border text-text-muted hover:text-text-main hover:bg-surface-subtle'
-                }`}
-              >
-                <span>{cat.label}</span>
-                {count > 0 && (
-                  <span
-                    className={`text-[10px] font-mono ${
-                      isSel ? 'text-accent font-bold' : 'text-text-faint'
-                    }`}
-                  >
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Toolbar & Filter Bar */}
-      {sectionAssets.length > 0 && (
-        <div className="shrink-0 px-3 sm:px-4 py-2 bg-surface-panel/60 border-b border-surface-border flex flex-wrap items-center justify-between gap-2 text-xs">
-          {/* Left: Search input & Kind filter buttons */}
-          <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-md">
-            <div className="relative flex-1">
-              <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                placeholder={activeSection === 'drafts' ? 'Search drafts...' : 'Search processed...'}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-7 pl-8 pr-2.5 text-xs bg-surface-subtle border border-surface-border rounded-lg text-text-main placeholder:text-text-faint focus:outline-none focus:border-accent"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main cursor-pointer"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-
-            {/* Kind Filter Tabs */}
-            <div className="flex items-center p-0.5 rounded-lg bg-surface-subtle border border-surface-border shrink-0">
-              {(['all', 'image', 'pdf'] as const).map((kind) => (
-                <button
-                  key={kind}
-                  type="button"
-                  onClick={() => setFilterKind(kind)}
-                  className={`px-2 py-0.5 text-[11px] font-medium rounded-md transition-all cursor-pointer ${
-                    filterKind === kind
-                      ? 'bg-surface-panel text-accent font-semibold shadow-2xs'
-                      : 'text-text-muted hover:text-text-main'
-                  }`}
-                >
-                  {kind === 'all' ? 'All' : kind === 'image' ? 'Images' : 'PDFs'}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Right: Select All / Selection Count */}
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={selectAll}
-              className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer border border-surface-border"
-            >
-              {selectedIds.size > 0 && selectedIds.size === filteredAssets.length ? (
-                <CheckSquare className="w-3.5 h-3.5 text-accent" />
-              ) : (
-                <Square className="w-3.5 h-3.5" />
-              )}
-              <span>Select All</span>
-            </button>
-          </div>
-        </div>
       )}
 
-      {/* Floating Multi-Selection Action Bar (Shown when >= 1 asset is selected) */}
-      {selectedIds.size > 0 && (
-        <div className="shrink-0 px-4 py-2.5 bg-accent/10 border-b border-accent/25 flex items-center justify-between gap-3 text-xs animate-in fade-in slide-in-from-top-1">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-accent font-mono">
-              {selectedIds.size} {selectedIds.size === 1 ? 'asset' : 'assets'} selected
-            </span>
+      {/* 2. SINGLE-LINE TOOLBAR: Search Bar, Category Dropdown & All/Images/PDFs Selector on ONE single row */}
+      {sectionAssets.length > 0 && (
+        <div className="shrink-0 px-3 sm:px-4 py-2 bg-surface-panel border-b border-surface-border flex items-center gap-1.5 sm:gap-2 text-xs min-h-[48px] flex-nowrap overflow-x-auto no-scrollbar">
+          {/* 1. Search Input (small, compact, flexible) */}
+          <div className="relative flex-1 min-w-[70px] max-w-sm">
+            <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full h-8 pl-8 pr-2.5 text-xs bg-surface-subtle border border-surface-border rounded-lg text-text-main placeholder:text-text-faint focus:outline-none focus:border-accent"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-main cursor-pointer"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
 
-          {/* Multi-Selection Three Dots Menu */}
-          <div className="relative flex items-center gap-2" data-library-menu="multi">
-            {/* Direct Quick Merge/Create buttons if applicable */}
-            {hasImages && !hasPdfs && (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleMultiCreatePdf}
-                leftIcon={<FileText className="w-3.5 h-3.5" />}
-                className="h-7 px-2.5 text-xs font-semibold shadow-xs"
-              >
-                Create a PDF
-              </Button>
-            )}
-
-            {hasPdfs && (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleMultiMerge}
-                leftIcon={<Layers className="w-3.5 h-3.5" />}
-                className="h-7 px-2.5 text-xs font-semibold shadow-xs"
-              >
-                {hasImages ? 'Merge Assets' : 'Merge PDFs'}
-              </Button>
-            )}
-
-            {/* Three Dots Button for Multi-Selection */}
+          {/* 2. Selection List (Collapsible Category Dropdown) */}
+          <div className="relative shrink-0" data-library-category-dropdown="true">
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsMultiMenuOpen((prev) => !prev);
-              }}
-              className="p-1.5 rounded-lg border border-surface-border bg-surface-panel text-text-main hover:bg-surface-subtle transition-colors cursor-pointer shadow-xs"
-              title="More actions for selected assets"
-              aria-label="Selection options"
+              onClick={() => setIsCategoryMenuOpen((prev) => !prev)}
+              className={`h-8 flex items-center gap-1 px-2 rounded-lg border text-xs transition-colors cursor-pointer shrink-0 ${
+                activeCategory !== 'all'
+                  ? 'bg-accent/15 border-accent text-accent font-semibold'
+                  : 'bg-surface-subtle border-surface-border text-text-muted hover:text-text-main hover:bg-surface-hover'
+              }`}
+              title="Filter by Category"
             >
-              <MoreVertical className="w-4 h-4" />
+              <span className="truncate max-w-[80px]">
+                {CATEGORY_TABS.find((c) => c.id === activeCategory)?.label || 'All'}
+              </span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isCategoryMenuOpen ? 'rotate-180' : ''}`} />
             </button>
 
-            {/* Multi-Selection Dropdown Menu */}
-            {isMultiMenuOpen && (
-              <div className="absolute right-0 top-9 w-52 rounded-xl bg-surface-panel border border-surface-border shadow-2xl p-1 z-50 text-xs space-y-0.5 animate-in fade-in zoom-in-95">
-                {/* 1. If PDFs and IMGs are BOTH selected -> Option: Merge assets */}
-                {hasPdfs && hasImages && (
-                  <button
-                    type="button"
-                    onClick={handleMultiMerge}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-text-main hover:bg-surface-subtle hover:text-accent text-left cursor-pointer font-medium"
-                  >
-                    <Layers className="w-4 h-4 text-accent" />
-                    <span>Merge assets</span>
-                  </button>
-                )}
-
-                {/* 2. If ONLY Images are selected -> Option: Create a PDF */}
-                {hasImages && !hasPdfs && (
-                  <button
-                    type="button"
-                    onClick={handleMultiCreatePdf}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-text-main hover:bg-surface-subtle hover:text-accent text-left cursor-pointer font-medium"
-                  >
-                    <FileText className="w-4 h-4 text-accent" />
-                    <span>Create a PDF</span>
-                  </button>
-                )}
-
-                {/* 3. If ONLY PDFs are selected -> Option: Merge PDFs */}
-                {hasPdfs && !hasImages && (
-                  <button
-                    type="button"
-                    onClick={handleMultiMerge}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-text-main hover:bg-surface-subtle hover:text-accent text-left cursor-pointer font-medium"
-                  >
-                    <Layers className="w-4 h-4 text-accent" />
-                    <span>Merge PDFs</span>
-                  </button>
-                )}
-
-                <div className="h-px bg-surface-border my-1" />
-
-                {/* Download Selected */}
-                <button
-                  type="button"
-                  onClick={handleMultiDownload}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-text-main hover:bg-surface-subtle text-left cursor-pointer"
-                >
-                  <Download className="w-4 h-4 text-text-muted" />
-                  <span>Download selected</span>
-                </button>
-
-                {/* Delete Selected */}
-                <button
-                  type="button"
-                  onClick={handleMultiDelete}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-status-error hover:bg-status-error-bg/20 text-left cursor-pointer font-medium"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Delete from Library</span>
-                </button>
+            {isCategoryMenuOpen && (
+              <div className="absolute left-0 sm:left-auto sm:right-0 top-9 w-44 rounded-xl bg-surface-panel border border-surface-border shadow-lifted p-1 z-40 text-xs space-y-0.5 animate-in fade-in zoom-in-95">
+                {CATEGORY_TABS.map((cat) => {
+                  const count =
+                    cat.id === 'all'
+                      ? sectionAssets.length
+                      : sectionAssets.filter((a) => a.category === cat.id).length;
+                  const isSel = activeCategory === cat.id;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => {
+                        setActiveCategory(cat.id);
+                        setSelectedIds(new Set());
+                        setIsCategoryMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${
+                        isSel
+                          ? 'bg-accent text-accent-contrast font-semibold'
+                          : 'text-text-main hover:bg-surface-subtle'
+                      }`}
+                    >
+                      <span>{cat.label}</span>
+                      <span className={`text-[11px] font-mono ${isSel ? 'text-accent-contrast' : 'text-text-muted'}`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             )}
+          </div>
 
-            {/* Deselect / Close */}
-            <button
-              type="button"
-              onClick={() => setSelectedIds(new Set())}
-              className="p-1 rounded-md text-text-muted hover:text-text-main cursor-pointer"
-              title="Deselect all"
-            >
-              <X className="w-4 h-4" />
-            </button>
+          {/* 3. All / Images / PDFs Selector (in the end) */}
+          <div className="flex items-center p-0.5 rounded-lg bg-surface-subtle border border-surface-border shrink-0">
+            {(['all', 'image', 'pdf'] as const).map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => setFilterKind(kind)}
+                className={`px-2 py-1 text-[11px] font-medium rounded-md transition-all cursor-pointer ${
+                  filterKind === kind
+                    ? 'bg-surface-panel text-accent font-semibold shadow-2xs'
+                    : 'text-text-muted hover:text-text-main'
+                }`}
+              >
+                {kind === 'all' ? 'All' : kind === 'image' ? 'Images' : 'PDFs'}
+              </button>
+            ))}
           </div>
         </div>
       )}
@@ -732,40 +790,23 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             Loading library assets...
           </div>
         ) : filteredAssets.length === 0 ? (
-          /* Empty State */
-          <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4">
-            <div className="w-16 h-16 rounded-3xl bg-accent/10 border border-accent/20 text-accent flex items-center justify-center shadow-xs">
-              {activeSection === 'drafts' ? (
-                <FileClock className="w-8 h-8" />
-              ) : (
-                <FolderArchive className="w-8 h-8" />
-              )}
-            </div>
-            <div className="space-y-1.5 max-w-sm">
-              <h3 className="text-base font-serif font-bold text-text-main">
-                {sectionAssets.length === 0
-                  ? activeSection === 'drafts'
-                    ? 'No in-progress Drafts'
-                    : 'No Recently Processed files'
-                  : 'No matching assets'}
-              </h3>
-              <p className="text-xs text-text-muted leading-relaxed">
-                {sectionAssets.length === 0
-                  ? activeSection === 'drafts'
-                    ? 'When you leave an active tool before processing, saving to Drafts preserves your files and settings to resume anytime.'
-                    : 'Files you compress, convert, merge, or resize appear here automatically for quick viewing and offline reuse.'
-                  : 'No files match the selected category or search filter.'}
-              </p>
-            </div>
+          /* Empty State: one plain line, one primary action, no illustration */
+          <div className="h-full flex flex-col items-center justify-center text-center p-6 gap-3">
+            <p className="text-sm text-text-muted max-w-sm">
+              {sectionAssets.length === 0
+                ? activeSection === 'drafts'
+                  ? 'No saved drafts yet.'
+                  : 'Processed files and saved items appear here.'
+                : 'No assets match the current filter.'}
+            </p>
             {sectionAssets.length === 0 && activeSection === 'recent' ? (
               <Button
                 variant="primary"
                 size="md"
                 onClick={() => fileInputRef.current?.click()}
                 leftIcon={<Plus className="w-4 h-4" />}
-                className="px-5 py-2 font-semibold text-xs shadow-sm"
               >
-                Add Assets to Library
+                Choose files
               </Button>
             ) : sectionAssets.length > 0 ? (
               <Button
@@ -782,7 +823,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             ) : null}
           </div>
         ) : (
-          /* Assets Grid View */
+          /* Assets Grid View (Paper Sheet Tiles) */
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
             {filteredAssets.map((asset) => {
               const isSelected = selectedIds.has(asset.id);
@@ -792,7 +833,20 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               return (
                 <div
                   key={asset.id}
-                  onClick={() => {
+                  data-asset-id={asset.id}
+                  onTouchStart={(e) => handleTouchStartCard(asset.id, e)}
+                  onTouchEnd={handleTouchEndCard}
+                  onTouchMove={handleTouchMoveCard}
+                  onTouchCancel={handleTouchEndCard}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    toggleSelect(asset.id);
+                  }}
+                  onClick={(e) => {
+                    if (hasSlidRef.current) {
+                      e.preventDefault();
+                      return;
+                    }
                     if (selectedIds.size > 0) {
                       toggleSelect(asset.id);
                     } else if (isDraft && onResumeDraft) {
@@ -805,11 +859,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       }
                     }
                   }}
-                  className={`group relative flex flex-col rounded-none border transition-all cursor-pointer overflow-hidden ${
-                    isSelected
-                      ? 'border-accent bg-accent/5 ring-2 ring-accent/30 shadow-md'
-                      : 'border-surface-border bg-surface-panel hover:border-surface-border-focus hover:shadow-md'
+                  className={`paper-sheet group relative flex flex-col transition-colors cursor-pointer overflow-hidden ${
+                    isSelected ? 'border-accent ring-1 ring-accent' : ''
                   }`}
+                  style={{ WebkitTouchCallout: 'none', userSelect: 'none' }}
                 >
                   {/* Selection Checkbox OR Draft/Category Badge (Top Left) */}
                   {selectedIds.size > 0 ? (
@@ -818,26 +871,26 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       className="absolute top-2 left-2 z-20"
                     >
                       <div
-                        className={`w-5 h-5 rounded-none flex items-center justify-center transition-all border ${
+                        className={`w-6 h-6 rounded-control flex items-center justify-center transition-colors border ${
                           isSelected
-                            ? 'bg-accent border-accent text-white shadow-xs ring-1 ring-white/40'
-                            : 'bg-surface-panel/95 border-2 border-text-muted/60 text-transparent hover:border-accent shadow-xs'
+                            ? 'bg-accent border-accent text-accent-contrast'
+                            : 'bg-surface-panel border-surface-border text-transparent hover:border-accent shadow-xs'
                         }`}
                       >
                         {isSelected && (
-                          <Check className="w-3.5 h-3.5 text-white stroke-[3]" />
+                          <Check className="w-4 h-4 stroke-[3]" />
                         )}
                       </div>
                     </div>
                   ) : isDraft ? (
                     <div className="absolute top-2 left-2 z-20">
-                      <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/35 shadow-2xs">
+                      <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-chip bg-status-warning-bg text-status-warning border border-status-warning-border">
                         DRAFT
                       </span>
                     </div>
                   ) : asset.category ? (
                     <div className="absolute top-2 left-2 z-20">
-                      <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 bg-surface-panel/90 text-text-muted border border-surface-border shadow-2xs">
+                      <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-chip bg-surface-panel text-text-muted border border-surface-border shadow-xs">
                         {CATEGORY_LABELS[asset.category]}
                       </span>
                     </div>
@@ -845,70 +898,66 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
                   {/* Asset Format Badge */}
                   <div className="absolute top-2 right-2 z-20">
-                    <span
-                      className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-none shadow-2xs ${
-                        asset.kind === 'pdf'
-                          ? 'bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/25'
-                          : 'bg-accent/15 text-accent border border-accent/25'
-                      }`}
-                    >
+                    <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded-chip bg-surface-panel text-text-main border border-surface-border shadow-xs">
                       {asset.kind === 'pdf' ? 'PDF' : asset.name.split('.').pop()?.toUpperCase() || 'IMG'}
                     </span>
                   </div>
 
                   {/* Thumbnail Stage */}
-                  <div className="h-32 sm:h-36 w-full bg-white dark:bg-black/30 flex items-center justify-center overflow-hidden relative rounded-none p-1 border-b border-surface-border-subtle">
+                  <div className="h-32 sm:h-36 w-full bg-surface-subtle flex items-center justify-center overflow-hidden relative p-1 border-b border-surface-border-subtle">
                     {asset.thumbnailUrl ? (
                       <img
                         src={asset.thumbnailUrl}
                         alt={asset.name}
-                        className="w-full h-full object-contain rounded-none group-hover:scale-105 transition-transform duration-200"
+                        className="w-full h-full object-contain"
                         loading="lazy"
                       />
                     ) : asset.kind === 'pdf' ? (
-                      <div className="flex flex-col items-center justify-center gap-1.5 text-accent animate-pulse">
+                      <div className="flex flex-col items-center justify-center gap-1.5 text-text-muted">
                         <FileText className="w-8 h-8" />
-                        <span className="text-[10px] font-mono text-text-muted">Loading preview...</span>
+                        <span className="text-xs font-mono">PDF</span>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center gap-1 text-text-muted">
-                        <FileImage className="w-8 h-8 text-accent/70" />
-                        <span className="text-[10px] font-mono">Image</span>
+                        <FileImage className="w-8 h-8" />
+                        <span className="text-xs font-mono">Image</span>
                       </div>
                     )}
                   </div>
 
                   {/* Asset Metadata & Three Dots Menu */}
-                  <div className="p-2.5 flex items-center justify-between gap-1.5 bg-surface-panel border-t border-surface-border/50 rounded-none relative">
+                  <div className="p-2.5 flex items-center justify-between gap-1.5 bg-surface-panel relative">
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-text-main truncate" title={asset.name}>
+                      <p className="text-xs font-mono font-medium text-text-main truncate" title={asset.name}>
                         {asset.name}
                       </p>
-                      <p className="text-[10px] font-mono text-text-muted truncate">
+                      <p className="text-xs font-mono text-text-muted truncate">
                         {draftDetail ? `${draftDetail} · ${formatBytes(asset.size)}` : formatBytes(asset.size)}
                       </p>
                     </div>
 
-                    {/* Single Asset Three Dots Button */}
-                    <div className="relative shrink-0" data-library-menu={asset.id}>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const btnRect = e.currentTarget.getBoundingClientRect();
-                          if (menuAnchor?.id === asset.id) {
-                            setMenuAnchor(null);
-                          } else {
-                            setMenuAnchor({ id: asset.id, rect: btnRect });
-                          }
-                        }}
-                        className="p-1 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
-                        title="Asset actions"
-                        aria-label="More options"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-                    </div>
+                    {/* Single Asset Three Dots Button: hidden while selecting so click solely toggles */}
+                    {selectedIds.size === 0 && (
+                      <div className="relative shrink-0" data-library-menu={asset.id}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const btnRect = e.currentTarget.getBoundingClientRect();
+                            if (menuAnchor?.id === asset.id) {
+                              setMenuAnchor(null);
+                            } else {
+                              setMenuAnchor({ id: asset.id, rect: btnRect });
+                            }
+                          }}
+                          className="min-w-[40px] min-h-[40px] inline-flex items-center justify-center rounded-control text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors cursor-pointer"
+                          title="Asset actions"
+                          aria-label="More options"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -945,7 +994,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               width: `${menuWidth}px`,
               zIndex: 9999,
             }}
-            className="rounded-xl bg-surface-panel border border-surface-border shadow-2xl p-1.5 text-xs space-y-0.5 animate-in fade-in zoom-in-95 backdrop-blur-md select-none"
+            className="rounded-sheet bg-surface-panel border border-surface-border shadow-lifted p-1.5 text-xs space-y-0.5 select-none"
           >
             {/* Resume Draft Action (if Draft) */}
             {isDraftAsset(asset) && onResumeDraft && (
@@ -955,7 +1004,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   onResumeDraft(asset);
                   setMenuAnchor(null);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-accent bg-accent/10 hover:bg-accent/20 text-left cursor-pointer font-semibold"
+                className="w-full min-h-[36px] flex items-center gap-2 px-3 rounded-control text-accent-contrast bg-accent hover:bg-accent-hover text-left cursor-pointer font-semibold"
               >
                 <Play className="w-3.5 h-3.5 fill-current" />
                 <span>Resume Draft</span>
@@ -1109,7 +1158,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 handleDeleteSingle(asset.id);
                 setMenuAnchor(null);
               }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-status-error hover:bg-status-error-bg/20 text-left cursor-pointer font-medium"
+              className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-status-error hover:bg-status-error-bg text-left cursor-pointer font-medium"
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>Delete from Library</span>

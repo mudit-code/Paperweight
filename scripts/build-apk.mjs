@@ -41,14 +41,31 @@ if (!fs.existsSync(sourceApk)) {
   process.exit(1);
 }
 
-// Copy to clean android-output folder
+// Read package version
+const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
+
+// Copy to clean android-output folder and clean older APKs
 if (!fs.existsSync(outputDir)) {
   fs.mkdirSync(outputDir, { recursive: true });
+} else {
+  // Remove any previous versions to avoid duplicate APKs
+  const existingFiles = fs.readdirSync(outputDir);
+  for (const f of existingFiles) {
+    if (f.endsWith('.apk') && !f.includes(`v${pkg.version}`)) {
+      fs.unlinkSync(path.join(outputDir, f));
+      console.log(`🧹 Removed older APK: ${f}`);
+    }
+  }
 }
 
-const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
 const targetApk = path.join(outputDir, `Paperweight-v${pkg.version}.apk`);
 fs.copyFileSync(sourceApk, targetApk);
+
+// Sync with website downloads if folder exists
+const websiteDownloads = path.join(rootDir, 'website', 'downloads');
+if (fs.existsSync(websiteDownloads)) {
+  fs.copyFileSync(targetApk, path.join(websiteDownloads, 'Paperweight-latest.apk'));
+}
 
 const stats = fs.statSync(targetApk);
 const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);

@@ -1,8 +1,9 @@
-import React, { useRef, useState, useCallback } from 'react';
-import { Upload, FileIcon, X, AlertCircle, ArrowUp, ArrowDown, Loader2 } from 'lucide-react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
+import { FolderPlus, FileIcon, X, AlertCircle, ArrowUp, ArrowDown, Loader2 } from 'lucide-react';
 import type { ProcessedFile } from '../../core/types';
 import { validateFile, validateBatchLimits, formatBytes } from '../../core/files/validation';
 import { toUserFacingError, type UserFacingError } from '../../core/errors';
+import { isMobileApp } from '../../core/processors/download';
 import { Button } from './Button';
 import { ClearWarningBanner } from './ClearWarningBanner';
 import { Badge } from './Badge';
@@ -18,6 +19,7 @@ export interface DropzoneProps {
   disabled?: boolean;
   sizeEstimate?: SizeEstimate | null;
   className?: string;
+  onViewFile?: (file: ProcessedFile) => void;
 }
 
 export const Dropzone: React.FC<DropzoneProps> = ({
@@ -28,12 +30,23 @@ export const Dropzone: React.FC<DropzoneProps> = ({
   disabled = false,
   sizeEstimate: _sizeEstimate,
   className = '',
+  onViewFile,
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [error, setError] = useState<UserFacingError | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [pdfPreviews, setPdfPreviews] = useState<Record<string, string>>({});
   const inputRef = useRef<HTMLInputElement>(null);
+  const isMobile = isMobileApp();
+
+  useEffect(() => {
+    return () => {
+      Object.values(pdfPreviews).forEach((url) => {
+        if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+      });
+    };
+  }, [pdfPreviews]);
 
   const processIncomingFiles = useCallback(
     async (rawFiles: FileList | File[]) => {
@@ -104,7 +117,9 @@ export const Dropzone: React.FC<DropzoneProps> = ({
                   canvas.toBlob(res, 'image/jpeg', 0.8)
                 );
                 if (thumbBlob) {
-                  pdfFile.previewUrl = URL.createObjectURL(thumbBlob);
+                  const thumbUrl = URL.createObjectURL(thumbBlob);
+                  pdfFile.previewUrl = thumbUrl;
+                  setPdfPreviews((prev) => ({ ...prev, [pdfFile.id]: thumbUrl }));
                 }
               }
             } catch {
@@ -196,7 +211,7 @@ export const Dropzone: React.FC<DropzoneProps> = ({
       {error && (
         <div
           role="alert"
-          className="flex items-start justify-between gap-3 p-3.5 rounded-lg bg-status-error-bg border border-status-error-border text-status-error animate-in fade-in"
+          className="flex items-start justify-between gap-3 p-3.5 rounded-control bg-status-error-bg border border-status-error-border text-status-error"
         >
           <div className="flex items-start gap-2.5">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -211,34 +226,34 @@ export const Dropzone: React.FC<DropzoneProps> = ({
           <button
             type="button"
             onClick={() => setError(null)}
-            className="p-1 rounded-sm text-status-error hover:bg-status-error/10"
+            className="min-w-[44px] min-h-[44px] -mr-2 -my-2 flex items-center justify-center rounded-control text-status-error hover:bg-surface-subtle transition-colors duration-fast ease-out cursor-pointer"
             aria-label="Dismiss error"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      {/* Main Drag & Drop Zone */}
+      {/* Desk File Zone (solid 1px hairline, no dashed box, no icon-in-circle) */}
       <div
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onClick={() => inputRef.current?.click()}
+        onClick={() => !disabled && inputRef.current?.click()}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
+          if ((e.key === 'Enter' || e.key === ' ') && !disabled) {
             e.preventDefault();
             inputRef.current?.click();
           }
         }}
         tabIndex={disabled ? -1 : 0}
         role="button"
-        aria-label="Drop files here or press Enter to browse files"
-        className={`relative flex flex-col items-center justify-center p-8 sm:p-12 text-center rounded-xl border-2 border-dashed transition-all duration-200 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent ${
+        aria-label={isMobile ? 'Choose files' : 'Choose files or drop them here'}
+        className={`relative flex flex-col items-center justify-center p-8 sm:p-12 text-center rounded-sheet border transition-colors duration-fast ease-out cursor-pointer ${
           isDragOver
-            ? 'border-accent bg-accent-subtle scale-[0.99]'
-            : 'border-surface-border bg-surface-panel hover:border-surface-border-focus hover:bg-surface-subtle/50'
-        } ${disabled ? 'opacity-50 pointer-events-none' : ''}`}
+            ? 'border-surface-border-focus bg-surface-panel-raised shadow-lifted'
+            : 'border-surface-border bg-surface-panel hover:border-surface-border-focus'
+        } ${disabled ? 'bg-surface-disabled border-surface-border pointer-events-none' : ''}`}
       >
         <input
           ref={inputRef}
@@ -251,136 +266,165 @@ export const Dropzone: React.FC<DropzoneProps> = ({
         />
 
         {isImporting ? (
-          <div className="flex flex-col items-center justify-center space-y-2 py-4 animate-in fade-in">
-            <Loader2 className="w-8 h-8 text-accent animate-spin" />
+          <div className="flex flex-col items-center justify-center space-y-2 py-4">
+            <Loader2 className="w-6 h-6 text-text-main animate-spin" />
             <p className="text-sm font-semibold text-text-main">Reading files...</p>
             <p className="text-xs text-text-muted">Loading documents into local memory</p>
           </div>
         ) : (
-          <>
-            <div className="p-3.5 rounded-full bg-surface-subtle text-accent mb-3 group-hover:scale-105 transition-transform">
-              <Upload className="w-6 h-6" />
-            </div>
-
-            <p className="text-sm font-medium text-text-main mb-1">
-              <span className="text-accent underline underline-offset-2">Select files</span> or drag and drop here
+          <div className="flex flex-col items-center gap-4 max-w-md">
+            <p className="text-md font-medium text-text-main">
+              {isMobile
+                ? 'Choose files from your device.'
+                : 'Choose files or drop them on this desk.'}
             </p>
-
-            <p className="text-xs text-text-muted max-w-sm">
+            <Button
+              type="button"
+              variant="primary"
+              size="md"
+              disabled={disabled}
+              leftIcon={<FolderPlus className="w-4 h-4" />}
+              onClick={(e) => {
+                e.stopPropagation();
+                inputRef.current?.click();
+              }}
+            >
+              Choose files
+            </Button>
+            <p className="text-xs text-text-muted font-mono">
               {acceptedMimes.length > 0
                 ? acceptedMimes.some((m) => m.includes('word') || m.includes('doc')) &&
                   acceptedMimes.some((m) => m.includes('pdf')) &&
                   acceptedMimes.some((m) => m.startsWith('image'))
-                  ? 'Accepts Images (JPG, PNG, WebP), PDFs, and Word (.docx) files'
-                  : `Accepts ${acceptedMimes.map((m) => m.replace('*', 'all')).join(', ')}`
-                : 'Drop any document or image'}
-              {' — Up to '}
-              <span className="font-mono">{maxFiles} files</span>
+                  ? 'JPG · PNG · WEBP · PDF · DOCX'
+                  : acceptedMimes.map((m) => m.replace('*', 'all')).slice(0, 6).join(' · ')
+                : 'Any document or image'}{' '}
+              · Up to {maxFiles} files
             </p>
-          </>
+          </div>
         )}
       </div>
 
-      {/* Files List / Thumbnails */}
+      {/* Queued Paper Sheets */}
       {files.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs text-text-muted px-1">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-xs text-text-muted font-mono px-1">
             <span>
-              {files.length} {files.length === 1 ? 'file' : 'files'} selected (
-              {formatBytes(files.reduce((acc, f) => acc + f.size, 0))})
+              {files.length} {files.length === 1 ? 'file' : 'files'} ·{' '}
+              {formatBytes(files.reduce((acc, f) => acc + f.size, 0))}
             </span>
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="ghost" onClick={handleRequestClearAll} className="text-xs h-7 text-status-error hover:bg-status-error/10">
-                Clear all
-              </Button>
-            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleRequestClearAll}
+              className="text-status-error hover:text-status-error"
+            >
+              Clear all
+            </Button>
           </div>
 
           <div
             role="list"
             aria-label="Loaded files list"
-            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 max-h-[380px] overflow-y-auto pr-1"
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[380px] overflow-y-auto pr-1"
           >
-            {files.map((file, idx) => (
-              <div
-                key={file.id}
-                role="listitem"
-                className="group relative flex items-center gap-3 p-2.5 rounded-lg bg-surface-panel border border-surface-border hover:border-surface-border-focus transition-all duration-150 shadow-sm"
-              >
-                {/* Thumbnail / Icon */}
-                <div className="w-12 h-12 rounded-none bg-surface-subtle flex items-center justify-center overflow-hidden shrink-0 border border-surface-border-subtle">
-                  {file.previewUrl ? (
-                    <img
-                      src={file.previewUrl}
-                      alt={file.name}
-                      className="w-full h-full object-cover rounded-none"
-                    />
-                  ) : (
-                    <FileIcon className="w-5 h-5 text-text-muted" />
-                  )}
-                </div>
+            {files.map((file, idx) => {
+              const thumbUrl = pdfPreviews[file.id] || file.previewUrl;
+              const extBadge =
+                /\.docx$/i.test(file.name) || file.type.includes('word')
+                  ? 'DOCX'
+                  : /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
+                  ? 'PDF'
+                  : file.type.split('/')[1]?.toUpperCase() ||
+                    file.name.split('.').pop()?.toUpperCase() ||
+                    'FILE';
 
-                {/* Details */}
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium text-text-main truncate" title={file.name}>
-                    {file.name}
-                  </p>
-                  <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                    <span className="text-[11px] font-mono text-text-faint">
-                      {formatBytes(file.size)}
-                    </span>
-                    <Badge size="sm" variant="neutral">
-                      {/\.docx$/i.test(file.name) || file.type.includes('word')
-                        ? 'DOCX'
-                        : /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
-                        ? 'PDF'
-                        : file.type.split('/')[1]?.toUpperCase() ||
-                          file.name.split('.').pop()?.toUpperCase() ||
-                          'FILE'}
-                    </Badge>
+              return (
+                <div
+                  key={file.id}
+                  role="listitem"
+                  className="paper-sheet flex items-center gap-3 p-3 hover:border-surface-border-focus"
+                >
+                  <div
+                    onClick={(e) => {
+                      if (onViewFile) {
+                        e.stopPropagation();
+                        onViewFile(file);
+                      }
+                    }}
+                    className={`w-12 h-12 rounded-control bg-surface-subtle flex items-center justify-center overflow-hidden shrink-0 border border-surface-border ${
+                      onViewFile ? 'cursor-pointer hover:border-accent hover:ring-1 hover:ring-accent transition-all' : ''
+                    }`}
+                    title={onViewFile ? 'Click to preview' : undefined}
+                  >
+                    {thumbUrl ? (
+                      <img
+                        src={thumbUrl}
+                        alt={file.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <FileIcon className="w-5 h-5 text-text-muted" />
+                    )}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-mono font-semibold text-text-main truncate" title={file.name}>
+                      {file.name}
+                    </p>
+                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                      <span className="text-xs font-mono text-text-muted">
+                        {formatBytes(file.size)}
+                      </span>
+                      <Badge size="sm" variant="neutral">
+                        {extBadge}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        moveFile(idx, 'up');
+                      }}
+                      disabled={idx === 0}
+                      className="min-w-[36px] min-h-[44px] flex items-center justify-center rounded-control text-text-muted hover:text-text-main hover:bg-surface-subtle disabled:text-text-disabled disabled:pointer-events-none transition-colors duration-fast ease-out cursor-pointer"
+                      aria-label={`Move ${file.name} up`}
+                      title="Move up"
+                    >
+                      <ArrowUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        moveFile(idx, 'down');
+                      }}
+                      disabled={idx === files.length - 1}
+                      className="min-w-[36px] min-h-[44px] flex items-center justify-center rounded-control text-text-muted hover:text-text-main hover:bg-surface-subtle disabled:text-text-disabled disabled:pointer-events-none transition-colors duration-fast ease-out cursor-pointer"
+                      aria-label={`Move ${file.name} down`}
+                      title="Move down"
+                    >
+                      <ArrowDown className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeFile(file.id);
+                      }}
+                      className="min-w-[36px] min-h-[44px] flex items-center justify-center rounded-control text-text-muted hover:text-status-error hover:bg-surface-subtle transition-colors duration-fast ease-out cursor-pointer"
+                      aria-label={`Remove ${file.name}`}
+                      title="Remove file"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
-
-                {/* Reorder and Delete controls */}
-                <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      moveFile(idx, 'up');
-                    }}
-                    disabled={idx === 0}
-                    className="p-1 rounded text-text-faint hover:text-text-main disabled:opacity-20"
-                    aria-label={`Move ${file.name} up`}
-                  >
-                    <ArrowUp className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      moveFile(idx, 'down');
-                    }}
-                    disabled={idx === files.length - 1}
-                    className="p-1 rounded text-text-faint hover:text-text-main disabled:opacity-20"
-                    aria-label={`Move ${file.name} down`}
-                  >
-                    <ArrowDown className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeFile(file.id);
-                    }}
-                    className="p-1 rounded text-text-faint hover:text-status-error"
-                    aria-label={`Remove ${file.name}`}
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

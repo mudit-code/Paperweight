@@ -244,7 +244,7 @@ export const InteractiveCropper: React.FC<InteractiveCropperProps> = ({
 
           {/* Size & Aspect Ratio Pill Badge */}
           <div className="absolute top-2 left-2 z-20 pointer-events-none">
-            <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface-panel/90 text-text-main border border-surface-border dark:bg-black/75 dark:text-white dark:border-white/20 backdrop-blur-xs shadow-xs">
+            <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface-panel text-text-main border border-surface-border dark:bg-black/75 dark:text-white dark:border-white/20 backdrop-blur-xs shadow-xs">
               {outputWidth && outputHeight
                 ? `${outputWidth} × ${outputHeight} ${unit}`
                 : `${(targetAspectRatio).toFixed(2)}:1`}

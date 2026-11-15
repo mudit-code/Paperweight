@@ -1,102 +1,175 @@
-/* Design Tokens for Paperweight
-   Strictly token-driven. No arbitrary values or hardcoded colors.
-   Adheres to strict CSP and zero-network local loading. */
+/* Design Tokens for Paperweight — "Desk and paper"
+   Single source of truth for colors, typography, spacing (8px scale),
+   radii, elevation, motion, and brand palette. Zero external network calls. */
 
 :root {
-  /* Dynamic Safe Area Insets (Seamless fallback between browser env() and Capacitor SystemBars CSS injection) */
+  /* Dynamic Safe Area Insets */
   --safe-area-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
   --safe-area-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
   --safe-area-left: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
   --safe-area-right: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
 
-  /* Light Theme (Warm Alabaster / Linen Base) */
-  --surface-bg: #fbfaf8;
-  --surface-panel: #ffffff;
-  --surface-panel-raised: #f5f3ef;
-  --surface-subtle: #eeece7;
-  --surface-hover: #e6e3dd;
-  --surface-active: #dedad3;
-  --surface-border: #e3dfd7;
-  --surface-border-subtle: #eeebe5;
-  --surface-border-focus: #b45309;
+  /* Typography */
+  --font-sans: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --text-main: #191816;
-  --text-muted: #645f59;
-  --text-faint: #969086;
-  --text-disabled: #c2bcb4;
+  /* 5-Size Scale (12, 14, 16, 20, 26px in rem for 200% text scaling) */
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.25rem;
+  --fs-xl: 1.625rem;
 
-  --accent: #b45309;
-  --accent-hover: #92400e;
-  --accent-subtle: rgba(180, 83, 9, 0.08);
-  --accent-border: rgba(180, 83, 9, 0.22);
-  --accent-contrast: #ffffff;
+  /* 8px Spacing Rhythm */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
+  --space-6: 48px;
 
-  --status-offline: #059669;
-  --status-offline-bg: rgba(5, 150, 105, 0.08);
-  --status-offline-border: rgba(5, 150, 105, 0.25);
+  /* Radii: 8px controls, 12px sheets, chips only for pills */
+  --radius-control: 8px;
+  --radius-sheet: 12px;
+  --radius-chip: 9999px;
+  --radius-xs: var(--radius-control);
+  --radius-sm: var(--radius-control);
+  --radius-md: var(--radius-control);
+  --radius-lg: var(--radius-sheet);
+  --radius-xl: var(--radius-sheet);
+  --radius-full: var(--radius-chip);
 
-  --status-error: #dc2626;
-  --status-error-bg: rgba(220, 38, 38, 0.08);
-  --status-error-border: rgba(220, 38, 38, 0.25);
+  /* Motion: 120-200ms ease-out for state changes only */
+  --duration-fast: 120ms;
+  --duration-base: 160ms;
+  --duration-slow: 200ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
 
-  --status-warning: #d97706;
-  --status-warning-bg: rgba(217, 119, 6, 0.08);
-  --status-warning-border: rgba(217, 119, 6, 0.25);
+  /* Single Accent: Highlighter Yellow */
+  --accent: #F2D14B;
+  --accent-hover: #E6C335;
+  --accent-contrast: #151517;
+  --accent-subtle: rgba(242, 209, 75, 0.22);
+  --accent-border: rgba(21, 21, 23, 0.22);
 
-  --shadow-sm: 0 1px 2px 0 rgba(25, 24, 22, 0.04);
-  --shadow-md: 0 4px 6px -1px rgba(25, 24, 22, 0.06), 0 2px 4px -2px rgba(25, 24, 22, 0.04);
-  --shadow-lg: 0 10px 15px -3px rgba(25, 24, 22, 0.08), 0 4px 6px -4px rgba(25, 24, 22, 0.04);
-  --shadow-panel: 0 0 0 1px var(--surface-border), 0 2px 8px -2px rgba(25, 24, 22, 0.06);
+  /* Brand Logo Palette Tokens (Desk & Paper conversion of original mark) */
+  --logo-bg: #F2D14B;
+  --logo-bg-stroke: rgba(21, 21, 23, 0.16);
+  --logo-sheet-back: #E9E8E4;
+  --logo-sheet-front: #F7F5EF;
+  --logo-sheet-mark: #1F1F22;
+  --logo-sheet-lines: #A9A79F;
+  --logo-iron-top: #27272B;
+  --logo-iron-bottom: #151517;
+  --logo-iron-stroke: #151517;
+  --logo-handle: #1F1F22;
+  --logo-handle-highlight: #6B6964;
+  --logo-chevron: #F2D14B;
 
-  --radius-xs: 3px;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
-  --radius-full: 9999px;
+  /* ========================================================================
+     LIGHT THEME — Cool Light Grey Desk (#E9E8E4) + Paper-White Sheets (#F7F5EF)
+     ======================================================================== */
+  --surface-bg: #E9E8E4;
+  --surface-panel: #F7F5EF;
+  --surface-panel-raised: #EFECE4;
+  --surface-subtle: #E1DFD8;
+  --surface-hover: #D8D5CD;
+  --surface-active: #CFCCC3;
+  --surface-border: #CFCCC3;
+  --surface-border-subtle: #DFDCD4;
+  --surface-border-focus: #1A1A1C;
 
-  --font-serif: 'Fraunces', 'Newsreader', Georgia, serif;
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  /* Paper Sheet Tokens */
+  --sheet-bg: #F7F5EF;
+  --sheet-top-edge: #D2CFC6;
+  --sheet-fold: #E3DFD4;
+
+  /* Ink & Disabled (4.5:1 body, >= 3:1 disabled) */
+  --text-main: #1A1A1C;
+  --text-muted: #55534D;
+  --text-faint: #5E5C55;
+  --text-disabled: #52504A;
+  --surface-disabled: #D8D5CD;
+
+  /* Semantic Status Colors (separate from accent) */
+  --status-success: #15803D;
+  --status-success-bg: rgba(21, 128, 61, 0.10);
+  --status-success-border: rgba(21, 128, 61, 0.30);
+
+  --status-offline: var(--status-success);
+  --status-offline-bg: var(--status-success-bg);
+  --status-offline-border: var(--status-success-border);
+
+  --status-error: #DC2626;
+  --status-error-bg: rgba(220, 38, 38, 0.10);
+  --status-error-border: rgba(220, 38, 38, 0.30);
+
+  --status-warning: #A16207;
+  --status-warning-bg: rgba(161, 98, 7, 0.12);
+  --status-warning-border: rgba(161, 98, 7, 0.32);
+
+  /* Hairlines by default; single soft shadow only for paper lifted on desk */
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lifted: 0 10px 24px rgba(26, 26, 28, 0.14);
+  --shadow-lg: var(--shadow-lifted);
+  --shadow-panel: 0 0 0 1px var(--surface-border);
 }
 
 .dark {
-  /* Dark Theme (Warm Obsidian / Charcoal Base) */
-  --surface-bg: #141312;
-  --surface-panel: #1b1a18;
-  --surface-panel-raised: #22201d;
-  --surface-subtle: #292724;
-  --surface-hover: #33302c;
-  --surface-active: #3d3934;
-  --surface-border: #322f2b;
-  --surface-border-subtle: #262421;
-  --surface-border-focus: #d97706;
+  /* ========================================================================
+     DARK THEME (DEFAULT) — Graphite Desk (#151517) + #1F1F22 Panels
+     ======================================================================== */
+  --surface-bg: #151517;
+  --surface-panel: #1F1F22;
+  --surface-panel-raised: #27272B;
+  --surface-subtle: #252529;
+  --surface-hover: #2E2E34;
+  --surface-active: #34343A;
+  --surface-border: #34343A;
+  --surface-border-subtle: #28282E;
+  --surface-border-focus: #F2D14B;
 
-  --text-main: #f5f3ef;
-  --text-muted: #a6a096;
-  --text-faint: #6e685f;
-  --text-disabled: #47433c;
+  /* Paper Sheet Tokens */
+  --sheet-bg: #232327;
+  --sheet-top-edge: #3A3A42;
+  --sheet-fold: #2E2E34;
 
-  --accent: #d97706;
-  --accent-hover: #f59e0b;
-  --accent-subtle: rgba(217, 119, 6, 0.14);
-  --accent-border: rgba(217, 119, 6, 0.32);
-  --accent-contrast: #ffffff;
+  /* Ink & Disabled */
+  --text-main: #ECEAE4;
+  --text-muted: #A9A79F;
+  --text-faint: #94928B;
+  --text-disabled: #96948B;
+  --surface-disabled: #27272B;
 
-  --status-offline: #10b981;
-  --status-offline-bg: rgba(16, 185, 129, 0.12);
-  --status-offline-border: rgba(16, 185, 129, 0.3);
+  /* Accent adjustments for dark desk */
+  --accent: #F2D14B;
+  --accent-hover: #F5DA6A;
+  --accent-contrast: #151517;
+  --accent-subtle: rgba(242, 209, 75, 0.14);
+  --accent-border: rgba(242, 209, 75, 0.40);
 
-  --status-error: #ef4444;
+  /* Semantic Status Colors (separate from accent) */
+  --status-success: #22C55E;
+  --status-success-bg: rgba(34, 197, 94, 0.12);
+  --status-success-border: rgba(34, 197, 94, 0.30);
+
+  --status-offline: var(--status-success);
+  --status-offline-bg: var(--status-success-bg);
+  --status-offline-border: var(--status-success-border);
+
+  --status-error: #EF4444;
   --status-error-bg: rgba(239, 68, 68, 0.12);
-  --status-error-border: rgba(239, 68, 68, 0.3);
+  --status-error-border: rgba(239, 68, 68, 0.32);
 
-  --status-warning: #f59e0b;
-  --status-warning-bg: rgba(245, 158, 11, 0.12);
-  --status-warning-border: rgba(245, 158, 11, 0.3);
+  --status-warning: #EAB308;
+  --status-warning-bg: rgba(234, 179, 8, 0.12);
+  --status-warning-border: rgba(234, 179, 8, 0.32);
 
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
-  --shadow-panel: 0 0 0 1px var(--surface-border), 0 4px 16px -2px rgba(0, 0, 0, 0.45);
+  /* Single soft shadow for paper lifted on desk */
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lifted: 0 10px 28px rgba(0, 0, 0, 0.42);
+  --shadow-lg: var(--shadow-lifted);
+  --shadow-panel: 0 0 0 1px var(--surface-border);
 }

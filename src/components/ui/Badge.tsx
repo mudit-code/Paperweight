@@ -16,21 +16,21 @@ export const Badge: React.FC<BadgeProps> = ({
   icon,
 }) => {
   const variantStyles = {
-    neutral: 'bg-surface-subtle text-text-muted border-surface-border',
-    accent: 'bg-accent-subtle text-accent border-accent-border',
-    success: 'bg-status-offline-bg text-status-offline border-status-offline-border',
+    neutral: 'bg-surface-subtle text-text-main border-surface-border',
+    accent: 'bg-accent text-accent-contrast border-accent-border',
+    success: 'bg-status-success-bg text-status-success border-status-success-border',
     warning: 'bg-status-warning-bg text-status-warning border-status-warning-border',
     error: 'bg-status-error-bg text-status-error border-status-error-border',
   }[variant];
 
   const sizeStyles = {
-    sm: 'text-[11px] px-1.5 py-0.5 tracking-tight',
+    sm: 'text-xs px-2 py-0.5',
     md: 'text-xs px-2.5 py-1',
   }[size];
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-medium border rounded-sm transition-colors ${variantStyles} ${sizeStyles} ${className}`}
+      className={`inline-flex items-center gap-1.5 font-mono font-medium border rounded-chip transition-colors duration-fast ease-out whitespace-nowrap ${variantStyles} ${sizeStyles} ${className}`}
     >
       {icon && <span className="inline-flex shrink-0">{icon}</span>}
       <span>{children}</span>

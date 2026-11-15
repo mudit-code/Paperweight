@@ -49,41 +49,41 @@ const svgOpt1Source = fs.readFileSync(path.join(rootDir, 'logo assests/paperweig
 
 // 2. Prepare Round SVG for Android ic_launcher_round
 const svgRoundSource = svgOpt1Source.replace(
-  '<rect width="32" height="32" rx="7" fill="#B45309"/>',
-  '<circle cx="16" cy="16" r="16" fill="#B45309"/>'
+  '<rect width="32" height="32" rx="7" fill="#F2D14B" stroke="#151517" stroke-opacity="0.16" stroke-width="0.75"/>',
+  '<circle cx="16" cy="16" r="16" fill="#F2D14B"/>'
 );
 
 // 3. Prepare Maskable 512 SVG (square full-bleed background, safe mark inside)
 const svgMaskableSource = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
     <linearGradient id="opt1Body" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#3D3C49"/>
-      <stop offset="1" stop-color="#1A1922"/>
+      <stop offset="0" stop-color="#27272B"/>
+      <stop offset="1" stop-color="#151517"/>
     </linearGradient>
   </defs>
-  <!-- Full bleed amber background for maskable safe-zone -->
-  <rect width="512" height="512" fill="#B45309"/>
+  <!-- Full bleed highlighter yellow background for maskable safe-zone -->
+  <rect width="512" height="512" fill="#F2D14B"/>
   
   <!-- Centered mark scaled to 360px (well within 409px 80% safe zone circle) -->
   <g transform="translate(256 256) scale(11.25) translate(-16 -16)">
     <!-- Back sheet -->
-    <rect x="4" y="17.5" width="24" height="9.5" rx="1.5" fill="#E6D3B5" transform="rotate(-2 16 22)"/>
+    <rect x="4" y="17.5" width="24" height="9.5" rx="1.5" fill="#E9E8E4" transform="rotate(-2 16 22)"/>
     <!-- Front sheet -->
-    <rect x="4.5" y="18.5" width="23" height="8.5" rx="1.5" fill="#FFFDF8"/>
-    <!-- Document accent stripe -->
-    <rect x="6.5" y="20.5" width="4.5" height="4.5" rx="1" fill="#D97706"/>
+    <rect x="4.5" y="18.5" width="23" height="8.5" rx="1.5" fill="#F7F5EF"/>
+    <!-- Document stamp -->
+    <rect x="6.5" y="20.5" width="4.5" height="4.5" rx="1" fill="#1F1F22"/>
     <!-- Text hint lines -->
-    <rect x="13" y="21" width="12" height="1.5" rx="0.75" fill="#D2C4AE"/>
-    <rect x="13" y="23.5" width="8" height="1.5" rx="0.75" fill="#D2C4AE"/>
+    <rect x="13" y="21" width="12" height="1.5" rx="0.75" fill="#A9A79F"/>
+    <rect x="13" y="23.5" width="8" height="1.5" rx="0.75" fill="#A9A79F"/>
     
     <!-- Cast-Iron Paperweight -->
-    <ellipse cx="16" cy="18.5" rx="11" ry="1.5" fill="#181412" opacity="0.45"/>
-    <path d="M12 12V8.5C12 6.6 13.8 5 16 5C18.2 5 20 6.6 20 8.5V12" fill="none" stroke="#26252F" stroke-width="2.6" stroke-linecap="round"/>
-    <path d="M13.5 8C14.2 6.8 15.1 6.2 16 6.2C16.9 6.2 17.8 6.8 18.5 8" fill="none" stroke="#636272" stroke-width="1.2" stroke-linecap="round"/>
-    <path d="M9.5 12H22.5L26 18.5H6L9.5 12Z" fill="url(#opt1Body)" stroke="#1A1922" stroke-width="0.75" stroke-linejoin="round"/>
-    <line x1="10" y1="12.5" x2="22" y2="12.5" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="0.9" stroke-linecap="round"/>
-    <path d="M14 14.5L16 16.5L18 14.5" fill="none" stroke="#FFEBD1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-    <line x1="16" y1="13.5" x2="16" y2="15" stroke="#FFEBD1" stroke-width="1.5" stroke-linecap="round"/>
+    <ellipse cx="16" cy="18.5" rx="11" ry="1.5" fill="#151517" opacity="0.45"/>
+    <path d="M12 12V8.5C12 6.6 13.8 5 16 5C18.2 5 20 6.6 20 8.5V12" fill="none" stroke="#1F1F22" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M13.5 8C14.2 6.8 15.1 6.2 16 6.2C16.9 6.2 17.8 6.8 18.5 8" fill="none" stroke="#6B6964" stroke-width="1.2" stroke-linecap="round"/>
+    <path d="M9.5 12H22.5L26 18.5H6L9.5 12Z" fill="url(#opt1Body)" stroke="#151517" stroke-width="0.75" stroke-linejoin="round"/>
+    <line x1="10" y1="12.5" x2="22" y2="12.5" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="0.9" stroke-linecap="round"/>
+    <path d="M14 14.5L16 16.5L18 14.5" fill="none" stroke="#F2D14B" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="16" y1="13.5" x2="16" y2="15" stroke="#F2D14B" stroke-width="1.5" stroke-linecap="round"/>
   </g>
 </svg>`;
 
@@ -91,30 +91,30 @@ const svgMaskableSource = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 
 const svgForegroundSource = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108">
   <defs>
     <linearGradient id="opt1Body" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#3D3C49"/>
-      <stop offset="1" stop-color="#1A1922"/>
+      <stop offset="0" stop-color="#27272B"/>
+      <stop offset="1" stop-color="#151517"/>
     </linearGradient>
   </defs>
   <!-- Foreground mark scaled to 66dp and centered at (54, 54) -->
   <g transform="translate(54 54) scale(2.06) translate(-16 -16)">
     <!-- Back sheet -->
-    <rect x="4" y="17.5" width="24" height="9.5" rx="1.5" fill="#E6D3B5" transform="rotate(-2 16 22)"/>
+    <rect x="4" y="17.5" width="24" height="9.5" rx="1.5" fill="#E9E8E4" transform="rotate(-2 16 22)"/>
     <!-- Front sheet -->
-    <rect x="4.5" y="18.5" width="23" height="8.5" rx="1.5" fill="#FFFDF8"/>
-    <!-- Document accent stripe -->
-    <rect x="6.5" y="20.5" width="4.5" height="4.5" rx="1" fill="#D97706"/>
+    <rect x="4.5" y="18.5" width="23" height="8.5" rx="1.5" fill="#F7F5EF"/>
+    <!-- Document stamp -->
+    <rect x="6.5" y="20.5" width="4.5" height="4.5" rx="1" fill="#1F1F22"/>
     <!-- Text hint lines -->
-    <rect x="13" y="21" width="12" height="1.5" rx="0.75" fill="#D2C4AE"/>
-    <rect x="13" y="23.5" width="8" height="1.5" rx="0.75" fill="#D2C4AE"/>
+    <rect x="13" y="21" width="12" height="1.5" rx="0.75" fill="#A9A79F"/>
+    <rect x="13" y="23.5" width="8" height="1.5" rx="0.75" fill="#A9A79F"/>
     
     <!-- Cast-Iron Paperweight -->
-    <ellipse cx="16" cy="18.5" rx="11" ry="1.5" fill="#181412" opacity="0.45"/>
-    <path d="M12 12V8.5C12 6.6 13.8 5 16 5C18.2 5 20 6.6 20 8.5V12" fill="none" stroke="#26252F" stroke-width="2.6" stroke-linecap="round"/>
-    <path d="M13.5 8C14.2 6.8 15.1 6.2 16 6.2C16.9 6.2 17.8 6.8 18.5 8" fill="none" stroke="#636272" stroke-width="1.2" stroke-linecap="round"/>
-    <path d="M9.5 12H22.5L26 18.5H6L9.5 12Z" fill="url(#opt1Body)" stroke="#1A1922" stroke-width="0.75" stroke-linejoin="round"/>
-    <line x1="10" y1="12.5" x2="22" y2="12.5" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="0.9" stroke-linecap="round"/>
-    <path d="M14 14.5L16 16.5L18 14.5" fill="none" stroke="#FFEBD1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-    <line x1="16" y1="13.5" x2="16" y2="15" stroke="#FFEBD1" stroke-width="1.5" stroke-linecap="round"/>
+    <ellipse cx="16" cy="18.5" rx="11" ry="1.5" fill="#151517" opacity="0.45"/>
+    <path d="M12 12V8.5C12 6.6 13.8 5 16 5C18.2 5 20 6.6 20 8.5V12" fill="none" stroke="#1F1F22" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M13.5 8C14.2 6.8 15.1 6.2 16 6.2C16.9 6.2 17.8 6.8 18.5 8" fill="none" stroke="#6B6964" stroke-width="1.2" stroke-linecap="round"/>
+    <path d="M9.5 12H22.5L26 18.5H6L9.5 12Z" fill="url(#opt1Body)" stroke="#151517" stroke-width="0.75" stroke-linejoin="round"/>
+    <line x1="10" y1="12.5" x2="22" y2="12.5" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="0.9" stroke-linecap="round"/>
+    <path d="M14 14.5L16 16.5L18 14.5" fill="none" stroke="#F2D14B" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="16" y1="13.5" x2="16" y2="15" stroke="#F2D14B" stroke-width="1.5" stroke-linecap="round"/>
   </g>
 </svg>`;
 
@@ -289,12 +289,12 @@ function finishGeneration() {
   // 4. Update android ic_launcher_background.xml
   const androidBgXml = `<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#B45309</color>
+    <color name="ic_launcher_background">#F2D14B</color>
 </resources>
 `;
   const bgPath = path.join(rootDir, 'android/app/src/main/res/values/ic_launcher_background.xml');
   fs.writeFileSync(bgPath, androidBgXml, 'utf8');
-  console.log(' -> Updated android values/ic_launcher_background.xml (#B45309)');
+  console.log(' -> Updated android values/ic_launcher_background.xml (#F2D14B)');
 
   console.log('\nAll assets generated successfully!');
   process.exit(0);

@@ -28,16 +28,16 @@ export const PWAUpdateToast: React.FC = () => {
   return (
     <div
       role="alert"
-      className="fixed bottom-5 right-5 z-50 flex items-center gap-3 p-3.5 bg-surface-panel border border-accent rounded-lg shadow-lg animate-in slide-in-from-bottom-2"
+      className="fixed bottom-5 right-5 z-50 flex items-center gap-3 p-4 bg-surface-panel border border-surface-border rounded-sheet shadow-lifted transition-colors duration-fast ease-out"
     >
-      <div className="p-2 rounded-md bg-accent-subtle text-accent">
+      <div className="w-9 h-9 rounded-control bg-surface-subtle border border-surface-border text-text-main flex items-center justify-center shrink-0">
         <RefreshCw className="w-4 h-4" />
       </div>
-      <div>
-        <p className="text-xs font-medium text-text-main">Update Available</p>
-        <p className="text-[11px] text-text-muted">A newer offline build is cached and ready.</p>
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-text-main">Update Available</p>
+        <p className="text-xs text-text-muted">A newer offline build is cached and ready.</p>
       </div>
-      <div className="flex items-center gap-2 ml-2">
+      <div className="flex items-center gap-1.5 ml-1">
         <Button
           size="sm"
           variant="primary"
@@ -54,7 +54,7 @@ export const PWAUpdateToast: React.FC = () => {
         <button
           type="button"
           onClick={() => setNeedRefresh(false)}
-          className="p-1 rounded-sm text-text-muted hover:text-text-main hover:bg-surface-subtle"
+          className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-control text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors duration-fast ease-out cursor-pointer"
           aria-label="Dismiss update notification"
         >
           <X className="w-4 h-4" />

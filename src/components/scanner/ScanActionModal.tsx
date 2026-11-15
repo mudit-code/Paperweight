@@ -22,25 +22,25 @@ export const ScanActionModal: React.FC<ScanActionModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm transition-opacity"
+        className="fixed inset-0 bg-black/60 transition-opacity"
         onClick={onClose}
         aria-hidden="true"
       />
 
-      {/* Sheet / Modal Container (Emil Kowalski Vaul-style) */}
+      {/* Sheet / Modal Container */}
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="scan-modal-title"
-        className="relative z-10 w-full sm:max-w-md bg-surface-panel border-t sm:border border-surface-border rounded-t-[28px] sm:rounded-2xl p-5 sm:p-6 pb-[max(1.25rem,var(--safe-area-bottom))] pl-[max(1.25rem,var(--safe-area-left))] pr-[max(1.25rem,var(--safe-area-right))] shadow-2xl transition-all duration-250 ease-[cubic-bezier(0.16,1,0.3,1)] animate-in slide-in-from-bottom sm:slide-in-from-bottom-4 overscroll-contain"
+        className="relative z-10 w-full sm:max-w-md bg-surface-panel border-t sm:border border-surface-border rounded-t-sheet sm:rounded-sheet p-5 sm:p-6 pb-[max(1.25rem,var(--safe-area-bottom))] pl-[max(1.25rem,var(--safe-area-left))] pr-[max(1.25rem,var(--safe-area-right))] shadow-lifted overscroll-contain"
       >
         {/* Mobile drag handle */}
-        <div className="w-9 h-1 bg-surface-border rounded-full mx-auto mb-3.5 sm:hidden shrink-0" />
+        <div className="w-9 h-1 bg-surface-border rounded-chip mx-auto mb-3.5 sm:hidden shrink-0" />
 
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-surface-border">
           <div>
-            <h3 id="scan-modal-title" className="font-serif font-bold text-base sm:text-lg text-text-main">
+            <h3 id="scan-modal-title" className="font-semibold text-md text-text-main">
               Document Scanner
             </h3>
             <p className="text-xs text-text-muted mt-0.5">
@@ -50,7 +50,7 @@ export const ScanActionModal: React.FC<ScanActionModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer active:scale-95"
+            className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors cursor-pointer"
             aria-label="Close dialog"
           >
             <X className="w-4 h-4" />
@@ -66,22 +66,22 @@ export const ScanActionModal: React.FC<ScanActionModalProps> = ({
               onClose();
               onSelectCamera();
             }}
-            className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl border border-accent/30 bg-accent-subtle/50 hover:bg-accent-subtle hover:border-accent text-left transition-all duration-150 active:scale-[0.98] group cursor-pointer"
+            className="w-full min-h-[56px] flex items-center gap-3.5 p-3.5 rounded-sheet border border-accent bg-surface-subtle hover:bg-surface-hover text-left transition-colors cursor-pointer"
           >
-            <div className="w-11 h-11 rounded-xl bg-accent text-white flex items-center justify-center shrink-0 shadow-sm group-hover:scale-105 transition-transform duration-150">
+            <div className="w-10 h-10 rounded-control bg-accent text-accent-contrast flex items-center justify-center shrink-0">
               <Camera className="w-5 h-5" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-sm text-text-main group-hover:text-accent transition-colors">
+                <span className="font-semibold text-sm text-text-main">
                   Scan with Camera
                 </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent text-white font-semibold uppercase">
+                <span className="text-xs font-mono px-2 py-0.5 rounded-chip bg-accent text-accent-contrast font-semibold uppercase">
                   Live
                 </span>
               </div>
               <p className="text-xs text-text-muted mt-0.5">
-                Capture single or multi-page documents directly with camera
+                Capture single or multi-page documents directly
               </p>
             </div>
           </button>
@@ -93,17 +93,17 @@ export const ScanActionModal: React.FC<ScanActionModalProps> = ({
               onClose();
               onSelectImages();
             }}
-            className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl border border-surface-border bg-surface-subtle/40 hover:bg-surface-subtle hover:border-surface-border-focus text-left transition-all duration-150 active:scale-[0.98] group cursor-pointer"
+            className="w-full min-h-[56px] flex items-center gap-3.5 p-3.5 rounded-sheet border border-surface-border bg-surface-subtle hover:bg-surface-hover text-left transition-colors cursor-pointer"
           >
-            <div className="w-11 h-11 rounded-xl bg-surface-panel border border-surface-border text-accent flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-105 transition-transform duration-150">
+            <div className="w-10 h-10 rounded-control bg-surface-panel border border-surface-border text-text-main flex items-center justify-center shrink-0">
               <ImageIcon className="w-5 h-5" />
             </div>
             <div className="flex-1 min-w-0">
-              <span className="font-semibold text-sm text-text-main group-hover:text-accent transition-colors">
-                Import Photos / Images
+              <span className="font-semibold text-sm text-text-main">
+                Choose Photos / Images
               </span>
               <p className="text-xs text-text-muted mt-0.5">
-                Select document photos from gallery or files (JPG, PNG, WebP)
+                Select document photos from device (JPG, PNG, WebP)
               </p>
             </div>
           </button>
@@ -115,17 +115,17 @@ export const ScanActionModal: React.FC<ScanActionModalProps> = ({
               onClose();
               onSelectPdf();
             }}
-            className="w-full flex items-center gap-3.5 p-3.5 rounded-2xl border border-surface-border bg-surface-subtle/40 hover:bg-surface-subtle hover:border-surface-border-focus text-left transition-all duration-150 active:scale-[0.98] group cursor-pointer"
+            className="w-full min-h-[56px] flex items-center gap-3.5 p-3.5 rounded-sheet border border-surface-border bg-surface-subtle hover:bg-surface-hover text-left transition-colors cursor-pointer"
           >
-            <div className="w-11 h-11 rounded-xl bg-surface-panel border border-surface-border text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 shadow-2xs group-hover:scale-105 transition-transform duration-150">
+            <div className="w-10 h-10 rounded-control bg-surface-panel border border-surface-border text-text-main flex items-center justify-center shrink-0">
               <FileText className="w-5 h-5" />
             </div>
             <div className="flex-1 min-w-0">
-              <span className="font-semibold text-sm text-text-main group-hover:text-accent transition-colors">
-                Import PDF Document
+              <span className="font-semibold text-sm text-text-main">
+                Choose PDF Document
               </span>
               <p className="text-xs text-text-muted mt-0.5">
-                Clean and enhance existing PDF pages with contrast filters
+                Clean and enhance existing PDF pages offline
               </p>
             </div>
           </button>

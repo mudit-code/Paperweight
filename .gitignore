@@ -5,6 +5,7 @@ node_modules/
 dist/
 installer-output/
 android-output/
+promo-output/
 website/downloads/*.exe
 website/downloads/*.apk
 website/downloads/*.aab

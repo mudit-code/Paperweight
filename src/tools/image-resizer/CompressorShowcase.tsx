@@ -1,6 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import {
-  PlusCircle,
   FolderPlus,
   Trash2,
   Archive,
@@ -11,7 +10,6 @@ import {
   FileText,
   FileCode,
   FileImage,
-  TrendingDown,
   AlertCircle,
   Loader2,
   Check,
@@ -29,6 +27,7 @@ import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { DeleteConfirmModal } from '../../components/ui/DeleteConfirmModal';
 import { PdfViewerModal } from '../../components/ui/PdfViewerModal';
+import { ImageGalleryModal, type GalleryItem } from '../../components/ui/ImageGalleryModal';
 
 export interface CompressorShowcaseProps {
   files: ProcessedFile[];
@@ -45,6 +44,8 @@ export interface CompressorShowcaseProps {
   maxFiles?: number;
   activeMode?: 'pdf' | 'image' | 'doc';
   className?: string;
+  onViewImages?: (images: GalleryItem[], initialIndex?: number) => void;
+  onViewFile?: (file: ProcessedFile) => void;
 }
 
 export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
@@ -62,6 +63,8 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
   maxFiles = 250,
   activeMode = 'pdf',
   className = '',
+  onViewImages,
+  onViewFile: _onViewFile,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isMobile = isMobileApp() || (typeof window !== 'undefined' && window.innerWidth < 768);
@@ -95,6 +98,10 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
     name: string;
     isCompressed: boolean;
   } | null>(null);
+
+  // In-App Gallery Viewer state
+  const [isGalleryOpen, setIsGalleryOpen] = useState<boolean>(false);
+  const [galleryInitialIndex, setGalleryInitialIndex] = useState<number>(0);
 
   // Background thumbnail mapping and pending set for non-blocking UI
   const [previewMap, setPreviewMap] = useState<Map<string, string>>(new Map());
@@ -420,6 +427,48 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
     }
   };
 
+  const imageFiles = files.filter(
+    (f) =>
+      f.type.startsWith('image/') ||
+      /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name)
+  );
+
+  const galleryItems: GalleryItem[] = imageFiles.map((f) => {
+    const batchItem = result?.items?.find(
+      (it) => it.id === f.id || it.name.startsWith(f.name.replace(/\.[^.]+$/, ''))
+    );
+    const singleItem = singleResults.get(f.id);
+    const activeItem = batchItem || singleItem;
+
+    const preview = previewMap.get(f.id);
+    let blob: Blob;
+    try {
+      blob = activeItem?.blob || new Blob([f.data], { type: f.type || 'image/jpeg' });
+    } catch {
+      blob = new Blob([], { type: 'image/jpeg' });
+    }
+
+    return {
+      id: f.id,
+      name: activeItem?.name || f.name,
+      url: activeItem?.blob ? URL.createObjectURL(activeItem.blob) : preview || (typeof window !== 'undefined' ? URL.createObjectURL(blob) : ''),
+      blob,
+      size: activeItem?.compressedSize || f.size,
+      type: f.type,
+    };
+  });
+
+  const handleImageClick = (file: ProcessedFile) => {
+    const idx = imageFiles.findIndex((f) => f.id === file.id);
+    const validIdx = idx >= 0 ? idx : 0;
+    if (onViewImages) {
+      onViewImages(galleryItems, validIdx);
+    } else {
+      setGalleryInitialIndex(validIdx);
+      setIsGalleryOpen(true);
+    }
+  };
+
   const handleDownloadZip = async () => {
     if (files.length === 0) return;
 
@@ -488,13 +537,6 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
     }
   };
 
-  const getAddLabel = () => {
-    if (activeMode === 'pdf') return 'Add PDFs';
-    if (activeMode === 'image') return 'Add Images';
-    if (activeMode === 'doc') return 'Add Documents';
-    return 'Add Files';
-  };
-
   const getSelectLabel = () => {
     if (activeMode === 'pdf') return 'Select PDF';
     if (activeMode === 'image') return 'Select Image';
@@ -505,7 +547,7 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
   const totalOriginalBytes = files.reduce((acc, f) => acc + f.size, 0);
 
   return (
-    <div className={`flex flex-col ${isMobile ? 'h-full min-h-0 space-y-2.5' : 'space-y-4'} ${className}`}>
+    <div className={`flex flex-col ${isMobile ? 'h-full min-h-0 space-y-2.5' : 'space-y-4 flex-1 min-h-0'} ${className}`}>
       {/* Hidden File Input */}
       <input
         ref={fileInputRef}
@@ -542,7 +584,7 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
       {error && (
         <div
           role="alert"
-          className="flex items-start justify-between gap-3 p-3.5 rounded-xl bg-status-error-bg border border-status-error-border text-status-error text-xs animate-in fade-in shrink-0"
+          className="flex items-start justify-between gap-3 p-3.5 rounded-sheet bg-status-error-bg border border-status-error-border text-status-error text-sm shrink-0"
         >
           <div className="flex items-start gap-2.5">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -554,61 +596,56 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
           <button
             type="button"
             onClick={() => setError(null)}
-            className="p-1 rounded text-status-error hover:bg-status-error/10 transition-colors"
+            className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control text-status-error hover:bg-status-error/10 transition-colors cursor-pointer"
+            aria-label="Dismiss error"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      {/* Main Showcase Box (Stretched down on mobile, no dead space, internal scrolling) */}
+      {/* Main Showcase Box */}
       <div
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`w-full rounded-2xl border-2 border-dashed transition-all duration-200 flex flex-col justify-between ${
+        className={`w-full rounded-sheet border transition-colors duration-150 flex flex-col justify-between ${
           isMobile
             ? 'flex-1 min-h-0 p-3 pb-0 overflow-hidden'
-            : 'min-h-[260px] sm:min-h-[320px] lg:min-h-[440px] p-4 sm:p-6'
-        } shadow-sm ${
+            : 'flex-1 min-h-[340px] p-4 sm:p-6'
+        } ${
           isDragOver
-            ? 'border-accent bg-accent-subtle/20 ring-2 ring-accent/30'
-            : 'border-surface-border bg-surface-subtle/40 hover:border-surface-border-focus'
+            ? 'border-accent bg-surface-hover shadow-lifted'
+            : 'border-surface-border bg-surface-panel'
         }`}
       >
         {/* Showcase Files Workspace */}
         {isImporting && files.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-4 my-auto space-y-2 animate-in fade-in duration-150">
-            <div className="w-12 h-12 rounded-full bg-accent-subtle border border-accent-border flex items-center justify-center shadow-xs">
-              <Loader2 className="w-6 h-6 text-accent animate-spin" />
-            </div>
-            <p className="text-xs font-semibold text-text-main">Reading files...</p>
+          <div className="flex-1 flex flex-col items-center justify-center p-4 my-auto space-y-2">
+            <Loader2 className="w-6 h-6 text-accent animate-spin" />
+            <p className="text-sm font-medium text-text-main">Reading files...</p>
           </div>
         ) : files.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-4 my-auto space-y-3 pb-3.5">
-            <button
+          <div className="flex-1 flex flex-col items-center justify-center p-4 my-auto text-center gap-3 pb-4">
+            <p className="text-sm text-text-muted">
+              {isMobile
+                ? 'Choose files on your device to compress.'
+                : 'Choose files or drop them onto the desk to compress.'}
+            </p>
+            <Button
               type="button"
+              variant="primary"
+              size="md"
               onClick={openFilePicker}
               disabled={isProcessing}
-              className={`${
-                isMobile ? 'w-24 h-24' : 'w-32 h-32'
-              } rounded-full border-2 border-dashed border-surface-border bg-surface-panel hover:bg-surface-panel hover:border-accent hover:text-accent flex flex-col items-center justify-center gap-1.5 text-text-muted transition-all shadow-sm group cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent`}
-              aria-label={getAddLabel()}
+              leftIcon={<FolderPlus className="w-4 h-4" />}
             >
-              <PlusCircle className={`${isMobile ? 'w-7 h-7' : 'w-8 h-8'} text-text-muted group-hover:text-accent transition-colors`} />
-              <span className="text-xs font-semibold text-text-main group-hover:text-accent transition-colors">
-                {getAddLabel()}
-              </span>
-            </button>
-            {!isMobile && (
-              <p className="text-xs text-text-faint text-center max-w-sm">
-                Drag and drop files here, or click the circle above to browse from your device.
-              </p>
-            )}
+              {isMobile ? 'Choose files' : getSelectLabel()}
+            </Button>
           </div>
         ) : (
-          <div className={`w-full flex-1 min-h-0 ${isMobile ? 'overflow-y-auto px-1 pt-1 pb-2' : 'max-h-[280px] sm:max-h-[340px] lg:max-h-none overflow-y-auto px-1 pt-1 pb-3'} no-scrollbar`}>
-            <div className={`grid ${isMobile ? 'grid-cols-2 gap-2.5' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4'} items-start`}>
+          <div className={`w-full flex-1 min-h-0 ${isMobile ? 'overflow-y-auto px-0.5 pt-1 pb-2' : 'max-h-[280px] sm:max-h-[340px] lg:max-h-none overflow-y-auto px-0.5 pt-1 pb-3'} no-scrollbar`}>
+            <div className={`grid ${isMobile ? 'grid-cols-[repeat(auto-fill,minmax(145px,1fr))] gap-2.5' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4'} items-start`}>
               {files.map((file) => {
                 const batchItem = result?.items?.find(
                   (it) =>
@@ -622,6 +659,9 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
                   /\.(docx|doc)$/i.test(file.name) || file.type.includes('word');
                 const isPdf =
                   /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+                const isImage =
+                  file.type.startsWith('image/') ||
+                  /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(file.name);
 
                 const previewUrl = file.previewUrl || previewMap.get(file.id);
                 const isRenderingPreview = isPdf && !previewUrl && pendingThumbnails.has(file.id);
@@ -633,22 +673,17 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
                       contentVisibility: 'auto',
                       containIntrinsicSize: '240px 240px',
                     }}
-                    className={`rounded-xl bg-surface-panel border border-surface-border shadow-panel ${
+                    className={`paper-sheet ${
                       isMobile ? 'p-2.5 space-y-2' : 'p-3.5 space-y-3'
-                    } flex flex-col justify-between hover:border-surface-border-focus transition-all group relative animate-in fade-in duration-150`}
+                    } flex flex-col justify-between transition-colors group relative`}
                   >
                     {/* Top Row: Filename, Original Size, and Remove Button */}
-                    <div className="flex items-center justify-between gap-1.5 text-xs">
+                    <div className="flex items-center justify-between gap-1 text-xs pr-2">
                       <span
-                        className={`font-medium text-text-main truncate ${
-                          isMobile ? 'max-w-[85px]' : 'max-w-[120px]'
-                        }`}
+                        className="font-mono font-medium text-text-main truncate flex-1 min-w-0"
                         title={file.name}
                       >
                         {file.name}
-                      </span>
-                      <span className="font-mono text-[10px] text-text-faint shrink-0">
-                        {formatBytes(file.size)}
                       </span>
                       <button
                         type="button"
@@ -656,7 +691,7 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
                           e.stopPropagation();
                           setDeleteTarget({ isOpen: true, id: file.id, name: file.name, isAll: false });
                         }}
-                        className="p-1 rounded-md text-text-faint hover:text-status-error hover:bg-status-error/10 transition-colors shrink-0 cursor-pointer"
+                        className="min-w-[44px] min-h-[44px] -m-1.5 inline-flex items-center justify-center rounded-control text-text-muted hover:text-status-error hover:bg-status-error-bg transition-colors shrink-0 cursor-pointer"
                         title="Remove file"
                         aria-label={`Remove ${file.name}`}
                       >
@@ -666,17 +701,17 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
 
                     {/* Middle: Document / Image Preview Thumbnail */}
                     <div
-                      onClick={() => isPdf && handlePreviewClick(file)}
-                      className={`w-full ${
-                        isMobile
-                          ? 'h-20 max-h-20'
-                          : isPdf || isDoc
-                          ? 'aspect-[1/1.414] max-h-48'
-                          : 'h-36'
-                      } mx-auto rounded-none bg-white border border-surface-border-subtle flex items-center justify-center overflow-hidden relative group/thumb shadow-2xs ${
-                        isPdf ? 'cursor-pointer hover:ring-2 hover:ring-accent/40 hover:shadow-md' : ''
-                      } transition-all`}
-                      title={isPdf ? 'Tap to view PDF' : undefined}
+                      onClick={() => {
+                        if (isPdf) {
+                          handlePreviewClick(file);
+                        } else if (isImage) {
+                          handleImageClick(file);
+                        }
+                      }}
+                      className={`w-full h-32 sm:h-36 mx-auto rounded-none bg-surface-subtle border border-surface-border-subtle flex items-center justify-center overflow-hidden relative group/thumb ${
+                        isPdf || isImage ? 'cursor-pointer hover:border-surface-border-strong' : ''
+                      } transition-colors`}
+                      title={isPdf ? 'Tap to view PDF' : isImage ? 'Tap to view image in gallery' : undefined}
                     >
                       {previewUrl ? (
                         <img
@@ -684,40 +719,40 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
                           alt={file.name}
                           loading="lazy"
                           decoding="async"
-                          className="w-full h-full object-contain p-1 rounded-none animate-in fade-in duration-200"
+                          className="w-full h-full object-contain p-1 rounded-none"
                         />
                       ) : isRenderingPreview ? (
-                        <div className="flex flex-col items-center justify-center gap-1.5 text-text-faint p-2 text-center animate-pulse">
+                        <div className="flex flex-col items-center justify-center gap-1.5 text-text-muted p-2 text-center">
                           <Loader2 className="w-5 h-5 text-accent animate-spin" />
-                          <span className="text-[10px] font-mono text-text-muted">Loading preview...</span>
+                          <span className="text-xs font-mono">Rendering...</span>
                         </div>
                       ) : isPdf ? (
                         <div className="flex flex-col items-center gap-1.5 text-text-muted">
-                          <FileText className="w-8 h-8 text-accent" />
+                          <FileText className="w-7 h-7 text-text-muted" />
                           <Badge size="sm" variant="neutral">
                             PDF
                           </Badge>
                         </div>
                       ) : isDoc ? (
                         <div className="flex flex-col items-center gap-1.5 text-text-muted">
-                          <FileCode className="w-8 h-8 text-accent" />
+                          <FileCode className="w-7 h-7 text-text-muted" />
                           <Badge size="sm" variant="neutral">
                             DOCX
                           </Badge>
                         </div>
                       ) : (
                         <div className="flex flex-col items-center gap-1.5 text-text-muted">
-                          <FileImage className="w-8 h-8 text-text-faint" />
+                          <FileImage className="w-7 h-7 text-text-muted" />
                           <Badge size="sm" variant="neutral">
                             IMAGE
                           </Badge>
                         </div>
                       )}
 
-                      {/* PDF Tap-to-View Badge Overlay */}
-                      {isPdf && (
+                      {/* PDF / Image Tap-to-View Badge Overlay */}
+                      {(isPdf || isImage) && (
                         <div className="absolute inset-0 bg-black/5 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition-opacity pointer-events-none">
-                          <span className="px-2 py-1 rounded bg-black/60 text-white text-[10px] font-medium flex items-center gap-1 shadow-sm">
+                          <span className="px-2 py-1 rounded-chip bg-surface-panel border border-surface-border text-text-main shadow-lifted text-xs font-medium flex items-center gap-1">
                             <Eye className="w-3 h-3" /> View
                           </span>
                         </div>
@@ -729,14 +764,13 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
                       <div className="flex items-center justify-between text-xs font-mono">
                         {activeItem ? (
                           <>
-                            <span className="text-text-muted text-[10px]">New size:</span>
+                            <span className="text-text-muted">New</span>
                             <div className="flex items-center gap-1">
-                              <span className="font-bold text-accent text-xs">
+                              <span className="font-semibold text-status-success">
                                 {formatBytes(activeItem.compressedSize)}
                               </span>
                               {activeItem.savingsPercent > 0 && (
-                                <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-bold bg-accent-subtle text-accent border border-accent-border">
-                                  <TrendingDown className="w-2.5 h-2.5" />
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-chip text-xs font-medium bg-status-success-bg text-status-success border border-status-success-border">
                                   -{activeItem.savingsPercent}%
                                 </span>
                               )}
@@ -744,8 +778,8 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
                           </>
                         ) : (
                           <>
-                            <span className="text-text-muted text-[10px]">Original:</span>
-                            <span className="text-text-muted font-medium text-xs">
+                            <span className="text-text-muted">Size</span>
+                            <span className="text-text-main font-medium">
                               {formatBytes(file.size)}
                             </span>
                           </>
@@ -755,40 +789,40 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
                       <div className="grid grid-cols-2 gap-1.5 pt-0.5">
                         <button
                           type="button"
-                          disabled={isProcessing || isSingleCompressing}
+                          disabled={isProcessing || isSingleCompressing || !activeItem}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleShareSingle(file);
                           }}
-                          title="Share file"
+                          title={activeItem ? 'Share file' : 'Compress file to share'}
                           aria-label={`Share ${file.name}`}
-                          className={`${
-                            isMobile ? 'h-7' : 'h-8'
-                          } rounded-lg border border-surface-border bg-surface-subtle hover:bg-surface-panel hover:border-accent text-text-main hover:text-accent flex items-center justify-center transition-all shadow-2xs active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
+                          className="min-h-[44px] rounded-control border border-surface-border bg-surface-subtle hover:bg-surface-hover text-text-main flex items-center justify-center transition-colors disabled:bg-surface-disabled disabled:text-text-disabled disabled:cursor-not-allowed cursor-pointer"
                         >
                           {isSingleCompressing && singleActionType === 'share' ? (
-                            <Loader2 className="w-3.5 h-3.5 text-accent animate-spin" />
+                            <Loader2 className="w-4 h-4 text-accent animate-spin" />
                           ) : (
-                            <Share2 className="w-3.5 h-3.5" />
+                            <Share2 className="w-4 h-4" />
                           )}
                         </button>
                         <button
                           type="button"
-                          disabled={isProcessing || isSingleCompressing}
+                          disabled={isProcessing || isSingleCompressing || !activeItem}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleDownloadSingle(file);
                           }}
-                          title="Save file"
+                          title={activeItem ? 'Save file' : 'Compress file to save'}
                           aria-label={`Save ${file.name}`}
-                          className={`${
-                            isMobile ? 'h-7' : 'h-8'
-                          } rounded-lg bg-accent hover:bg-accent-hover text-accent-contrast flex items-center justify-center transition-all shadow-2xs active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer`}
+                          className={`min-h-[44px] rounded-control flex items-center justify-center transition-colors cursor-pointer ${
+                            activeItem
+                              ? 'bg-accent hover:bg-accent-hover text-accent-contrast'
+                              : 'bg-surface-disabled text-text-disabled cursor-not-allowed border border-surface-border'
+                          } disabled:bg-surface-disabled disabled:text-text-disabled disabled:cursor-not-allowed`}
                         >
                           {isSingleCompressing && singleActionType === 'save' ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
-                            <Save className="w-3.5 h-3.5" />
+                            <Save className="w-4 h-4" />
                           )}
                         </button>
                       </div>
@@ -798,58 +832,39 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
               })}
 
               {isImporting && (
-                <div className="h-full min-h-[140px] rounded-xl bg-surface-panel/60 border-2 border-dashed border-accent-border/60 p-4 flex flex-col items-center justify-center gap-2 animate-pulse">
-                  <Loader2 className="w-6 h-6 text-accent animate-spin" />
-                  <span className="text-xs font-semibold text-text-muted">Importing...</span>
+                <div className="h-full min-h-[140px] rounded-sheet bg-surface-subtle border border-surface-border p-4 flex flex-col items-center justify-center gap-2">
+                  <Loader2 className="w-5 h-5 text-accent animate-spin" />
+                  <span className="text-xs font-medium text-text-muted">Importing...</span>
                 </div>
               )}
-
-              {/* Add Files Round Slot in Grid */}
-              <div className={`h-full ${isMobile ? 'min-h-[120px]' : 'min-h-[220px]'} flex items-center justify-center`}>
-                <button
-                  type="button"
-                  onClick={openFilePicker}
-                  disabled={isProcessing || isImporting}
-                  className={`${isMobile ? 'w-20 h-20' : 'w-28 h-28'} rounded-full border-2 border-dashed border-surface-border bg-surface-panel/40 hover:bg-surface-panel hover:border-accent hover:text-accent flex flex-col items-center justify-center gap-1.5 text-text-muted transition-all shadow-sm group cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent`}
-                  aria-label={getAddLabel()}
-                >
-                  <PlusCircle className={`${isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-text-muted group-hover:text-accent transition-colors`} />
-                  <span className="text-[11px] font-semibold text-text-main group-hover:text-accent transition-colors">
-                    {getAddLabel()}
-                  </span>
-                </button>
-              </div>
             </div>
           </div>
         )}
 
-        {/* Pinned Toolbar inside the drop box */}
-        <div className="relative z-20 shrink-0 pt-2 sm:pt-3 mt-auto border-t border-surface-border bg-surface-panel flex items-center justify-between flex-wrap gap-2 -mx-3 px-3 pb-2 rounded-b-2xl shadow-xs">
-          {/* Left: Select Files Button & Summary */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isProcessing || isImporting}
-              onClick={openFilePicker}
-              leftIcon={
-                isImporting ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-accent" />
+        {/* Pinned Toolbar inside the drop box (shown once files are loaded) */}
+        {files.length > 0 && (
+          <div className="relative z-20 shrink-0 pt-2 sm:pt-3 mt-auto border-t border-surface-border bg-surface-panel flex items-center justify-between flex-wrap gap-2 -mx-3 px-3 pb-2 rounded-b-sheet">
+            {/* Left: Choose More Files & Summary */}
+            <div className="flex items-center gap-2 sm:gap-3">
+              <button
+                type="button"
+                disabled={isProcessing || isImporting}
+                onClick={openFilePicker}
+                className="h-9 px-3 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isImporting ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-accent shrink-0" />
                 ) : (
-                  <FolderPlus className="w-4 h-4" />
-                )
-              }
-              className="font-medium text-xs shadow-sm"
-            >
-              {isImporting ? 'Importing...' : getSelectLabel()}
-            </Button>
+                  <FolderPlus className="w-4 h-4 shrink-0" />
+                )}
+                <span>{isImporting ? 'Importing...' : isMobile ? 'Choose files' : getSelectLabel()}</span>
+              </button>
 
-            {files.length > 0 && (
               <span className="text-xs font-mono text-text-muted hidden sm:inline">
                 {files.length} {files.length === 1 ? 'file' : 'files'} (
                 {formatBytes(totalOriginalBytes)}
                 {result && result.size && (
-                  <span className="text-accent font-semibold ml-1">
+                  <span className="text-status-success font-semibold ml-1">
                     → {formatBytes(result.size)}
                     {result.savingsPercent !== undefined && result.savingsPercent > 0 && (
                       <span className="ml-1">(-{result.savingsPercent}%)</span>
@@ -858,47 +873,58 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
                 )}
                 )
               </span>
-            )}
-          </div>
+            </div>
 
-          {/* Right: Trash Clear and Save Button */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleRequestClearAll}
-              disabled={files.length === 0 || isProcessing}
-              className="p-2 rounded-lg text-text-faint hover:text-status-error hover:bg-status-error/10 border border-transparent hover:border-status-error/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-              title="Remove all files"
-              aria-label="Remove all files"
-            >
-              <Trash2 className="w-4 h-4 text-status-error" />
-            </button>
+            {/* Right: Trash Clear and Save Button - Aligned with exact same height & border thickness */}
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleRequestClearAll}
+                disabled={files.length === 0 || isProcessing}
+                className="h-9 px-3 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-status-error hover:bg-status-error-bg border border-surface-border transition-colors disabled:opacity-50 cursor-pointer"
+                title="Remove all files"
+                aria-label="Remove all files"
+              >
+                <Trash2 className="w-4 h-4 shrink-0" />
+                <span>Clear</span>
+              </button>
 
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={files.length === 0 || isProcessing || isSavingAll}
-              isLoading={isProcessing || isSavingAll}
-              onClick={handleDownloadZip}
-              leftIcon={files.length > 1 && !isMobile ? <Archive className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-              className="font-semibold text-xs shadow-sm"
-            >
-              {files.length > 1 ? (isMobile ? 'Save All' : 'Save ZIP') : 'Save File'}
-            </Button>
+              <button
+                type="button"
+                disabled={files.length === 0 || isProcessing || isSavingAll || !result}
+                onClick={handleDownloadZip}
+                className={`h-9 px-3 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-semibold border transition-colors cursor-pointer disabled:opacity-50 disabled:pointer-events-none ${
+                  result
+                    ? 'bg-accent text-accent-contrast border-accent hover:bg-accent-hover font-semibold shadow-2xs'
+                    : 'bg-surface-subtle text-text-muted border-surface-border hover:bg-surface-hover'
+                }`}
+                title={result ? 'Save compressed file' : 'Compress file to save'}
+                aria-label="Save compressed file"
+              >
+                {isSavingAll ? (
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                ) : files.length > 1 && !isMobile ? (
+                  <Archive className="w-4 h-4 shrink-0" />
+                ) : (
+                  <Save className="w-4 h-4 shrink-0" />
+                )}
+                <span>{files.length > 1 ? (isMobile ? 'Save All' : 'Save ZIP') : 'Save File'}</span>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Mobile Integrated Controls Area (Enlarged dropbox directly above; fixed height so elements never jump or float) */}
       {isMobile && (
-        <div className="shrink-0 space-y-2 pt-0.5 animate-in fade-in select-none">
+        <div className="shrink-0 space-y-2 pt-0.5 select-none">
           {!isProcessing ? (
             <>
               {/* Compression Level Card */}
-              <div className="p-3 rounded-xl bg-surface-panel border border-surface-border shadow-xs space-y-2">
+              <div className="p-3 rounded-sheet bg-surface-panel border border-surface-border space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-text-main">Compression Level</span>
-                  <span className="font-mono font-bold text-accent text-xs bg-surface-subtle px-2 py-0.5 rounded border border-surface-border-subtle">
+                  <span className="font-semibold text-sm text-text-main">Compression Level</span>
+                  <span className="font-mono font-semibold text-accent-contrast bg-accent px-2.5 py-0.5 rounded-chip">
                     {currentLevel}%
                   </span>
                 </div>
@@ -911,15 +937,16 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
                   value={currentLevel}
                   onChange={(e) => handleLevelChange(Number(e.target.value))}
                   disabled={isProcessing}
-                  className="w-full accent-accent cursor-pointer"
+                  className="w-full accent-accent cursor-pointer min-h-[32px]"
+                  aria-label="Compression level percentage"
                 />
 
                 {/* Preset Chips */}
                 <div className="grid grid-cols-3 gap-1.5 pt-0.5">
                   {[
-                    { label: 'Light (15%)', val: 15, preset: 'light' },
-                    { label: 'Balanced (40%)', val: 40, preset: 'balanced' },
-                    { label: 'Maximum (75%)', val: 75, preset: 'maximum' },
+                    { label: 'Light 15%', val: 15, preset: 'light' },
+                    { label: 'Balanced 40%', val: 40, preset: 'balanced' },
+                    { label: 'Max 75%', val: 75, preset: 'maximum' },
                   ].map((p) => {
                     const isSel = currentLevel === p.val;
                     return (
@@ -927,10 +954,10 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
                         key={p.val}
                         type="button"
                         onClick={() => handlePresetSelect(p.val, p.preset)}
-                        className={`py-1 px-1 text-[10px] font-semibold rounded-lg border transition-all cursor-pointer text-center ${
+                        className={`min-h-[44px] px-1.5 text-xs font-medium font-mono rounded-control border transition-colors cursor-pointer text-center ${
                           isSel
-                            ? 'bg-accent text-accent-contrast border-accent font-bold shadow-2xs'
-                            : 'bg-surface-subtle border-surface-border text-text-muted hover:text-text-main hover:bg-surface-panel'
+                            ? 'bg-accent text-accent-contrast border-accent font-semibold'
+                            : 'bg-surface-subtle border-surface-border text-text-muted hover:text-text-main hover:bg-surface-hover'
                         }`}
                       >
                         {p.label}
@@ -942,17 +969,15 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
 
               {/* Primary Action Button */}
               {hasCompressedBatch && !isProcessing ? (
-                <div className="w-full h-11 rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-emerald-500 flex items-center justify-center gap-2 text-xs font-semibold select-none shadow-xs pointer-events-none">
-                  <div className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
-                    <Check className="w-2.5 h-2.5 stroke-[3]" />
-                  </div>
+                <div className="w-full min-h-[44px] rounded-control border border-status-success-border bg-status-success-bg text-status-success flex items-center justify-center gap-2 text-sm font-semibold select-none pointer-events-none">
+                  <Check className="w-4 h-4 stroke-[2.5]" />
                   <span>Compressed</span>
                 </div>
               ) : (
                 <Button
                   variant="primary"
                   size="md"
-                  className="w-full h-11 text-xs font-semibold shadow-md cursor-pointer"
+                  className="w-full"
                   disabled={files.length === 0 || isProcessing}
                   onClick={onExecuteBatch}
                 >
@@ -976,13 +1001,13 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
           ) : (
             <>
               {/* Compressing Progress Bar (Replaces Compression Level Card with matching footprint) */}
-              <div className="p-3 rounded-xl bg-surface-panel border border-surface-border shadow-xs space-y-2 animate-in fade-in">
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="font-mono font-bold text-accent text-xs">
+              <div className="p-3 rounded-sheet bg-surface-panel border border-surface-border space-y-2">
+                <div className="flex items-center justify-between text-xs gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-mono font-semibold text-accent-contrast bg-accent px-2 py-0.5 rounded-chip shrink-0">
                       {progress?.percentage ? Math.round(progress.percentage) : 0}%
                     </span>
-                    <span className="font-semibold text-text-main truncate">
+                    <span className="font-semibold text-sm text-text-main truncate">
                       {progress?.phase || 'Compressing...'}
                     </span>
                   </div>
@@ -990,27 +1015,25 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
                     <button
                       type="button"
                       onClick={onCancel}
-                      className="px-2 py-0.5 rounded text-[11px] font-medium text-text-muted hover:text-status-error hover:bg-status-error/10 transition-colors cursor-pointer flex items-center gap-1 shrink-0"
+                      className="min-h-[44px] px-3 rounded-control border border-surface-border text-xs font-medium text-text-muted hover:text-status-error hover:border-status-error-border transition-colors cursor-pointer flex items-center gap-1 shrink-0"
                     >
-                      <X className="w-3 h-3" />
+                      <X className="w-3.5 h-3.5" />
                       <span>Cancel</span>
                     </button>
                   )}
                 </div>
 
                 {/* Progress Bar Track */}
-                <div className="h-2 w-full bg-surface-subtle rounded-full overflow-hidden relative shadow-inner">
+                <div className="h-2 w-full bg-surface-subtle rounded-chip overflow-hidden border border-surface-border-subtle">
                   <div
-                    className="h-full bg-accent transition-all duration-300 ease-out rounded-full relative overflow-hidden"
+                    className="h-full bg-accent transition-[width] duration-150 ease-out rounded-chip"
                     style={{
                       width: `${Math.min(100, Math.max(0, progress?.percentage ? Math.round(progress.percentage) : 0))}%`,
                     }}
-                  >
-                    <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
-                  </div>
+                  />
                 </div>
 
-                <div className="flex items-center justify-between text-[10px] font-mono text-text-faint">
+                <div className="flex items-center justify-between text-xs font-mono text-text-muted">
                   <span className="truncate">
                     {progress?.message || (files.length > 1 ? `${files.length} files in queue` : files[0]?.name || '')}
                   </span>
@@ -1026,7 +1049,7 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
               <Button
                 variant="primary"
                 size="md"
-                className="w-full h-11 text-xs font-semibold shadow-md"
+                className="w-full"
                 disabled={true}
                 isLoading={true}
               >
@@ -1047,6 +1070,42 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
         isCompressed={viewingPdf?.isCompressed ?? false}
         onCompress={() => setViewingPdf(null)}
       />
+
+      {/* In-App Image Gallery Modal (Fallback if global onViewImages not provided) */}
+      {isGalleryOpen && galleryItems.length > 0 && (
+        <ImageGalleryModal
+          isOpen={isGalleryOpen}
+          onClose={() => setIsGalleryOpen(false)}
+          images={galleryItems}
+          initialIndex={galleryInitialIndex}
+          onCompressImage={(blob, name) => {
+            setIsGalleryOpen(false);
+            const newFile: ProcessedFile = {
+              id: `img_${Date.now()}`,
+              name,
+              size: blob.size,
+              type: blob.type || 'image/jpeg',
+              lastModified: Date.now(),
+              data: new ArrayBuffer(0),
+              previewUrl: URL.createObjectURL(blob),
+            };
+            blob.arrayBuffer().then((buf) => {
+              newFile.data = buf;
+              onFilesChange([newFile]);
+            });
+          }}
+          onResizeImage={(blob, name) => {
+            setIsGalleryOpen(false);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(
+                new CustomEvent('navigate-to-tool', {
+                  detail: { toolId: 'resizer', blob, name },
+                })
+              );
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

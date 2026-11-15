@@ -1,16 +1,9 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  Maximize2,
-  Crop,
   RotateCcw,
   RotateCw,
-  FlipHorizontal,
-  FlipVertical,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import type { EditorCropData } from '../../core/processors/resizer';
-import { formatBytes } from '../../core/files/validation';
 
 export interface DedicatedCropperProps {
   imageUrl: string;
@@ -23,26 +16,22 @@ export interface DedicatedCropperProps {
   initialCropData?: EditorCropData;
   onChange: (cropData: EditorCropData) => void;
   className?: string;
+  rotation?: number;
+  onRotationChange?: (rotation: number) => void;
 }
 
-type DragMode = 'move' | 'se' | 'sw' | 'ne' | 'nw';
-
-interface CropNorm {
-  x: number; // 0 to 1 normalized
-  y: number; // 0 to 1 normalized
-  width: number; // 0 to 1 normalized
-  height: number; // 0 to 1 normalized
-}
+type DragMode = 'move' | 'se' | 'sw' | 'ne' | 'nw' | 'panImage';
 
 interface DragState {
   mode: DragMode;
   startPointerX: number;
   startPointerY: number;
-  startCropNorm: CropNorm;
-  tempCropNorm: CropNorm;
-  baseImgScale: number;
-  baseImgX: number;
-  baseImgY: number;
+  startBoxX: number;
+  startBoxY: number;
+  startBoxW: number;
+  startBoxH: number;
+  startPanX: number;
+  startPanY: number;
 }
 
 export const DedicatedCropper: React.FC<DedicatedCropperProps> = ({
@@ -50,12 +39,12 @@ export const DedicatedCropper: React.FC<DedicatedCropperProps> = ({
   naturalDimensions,
   targetAspectRatio,
   outputFormat,
-  dimensionLabel,
-  fileSize,
   cropEnabled = true,
   initialCropData,
   onChange,
   className = '',
+  rotation: externalRotation,
+  onRotationChange,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -64,90 +53,49 @@ export const DedicatedCropper: React.FC<DedicatedCropperProps> = ({
     naturalDimensions || null
   );
 
-  // Viewport dimensions (updated instantly via ResizeObserver on maximize/minimize/resize)
+  // Viewport dimensions (updated instantly via ResizeObserver)
   const [viewport, setViewport] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
-  // Normalized crop area within the natural image (STRICTLY within [0, 1] x [0, 1])
-  const [cropNorm, setCropNorm] = useState<CropNorm>({
-    x: 0,
-    y: 0,
-    width: 1,
-    height: 1,
-  });
+  // Quick 90° rotation and flip state
+  const [internalRotation, setInternalRotation] = useState<number>(initialCropData?.rotation || 0);
+  const rotation = externalRotation !== undefined ? externalRotation : internalRotation;
 
-  // Active dragging state (moving the crop area or resizing corners)
+  const handleRotate = (delta: number) => {
+    const next = (rotation + delta + 360) % 360;
+    if (onRotationChange) {
+      onRotationChange(next);
+    } else {
+      setInternalRotation(next);
+    }
+  };
+
+  const flipH = Boolean(initialCropData?.flipH);
+  const flipV = Boolean(initialCropData?.flipV);
+  const bgColor = initialCropData?.bgColor || (outputFormat === 'jpeg' ? '#FFFFFF' : 'transparent');
+
+  // Image zoom multiplier: 1.0 to 5.0 (Mouse wheel zooms ONLY the image, NOT the cropper)
+  const [imageZoom, setImageZoom] = useState<number>(1.0);
+
+  // Pan offset for the image when zoomed in: in screen pixels
+  const [imagePan, setImagePan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Crop box explicit screen coordinates (fixed screen size during zoom!)
+  const [customBox, setCustomBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+
+  // Active dragging state
   const [dragState, setDragState] = useState<DragState | null>(null);
 
-  // User manual zoom multiplier (min 1.0: cropper NEVER shrinks below image bounds)
-  const [userZoom, setUserZoom] = useState<number>(1.0);
-
-  // Quick 90° rotation and flip state
-  const [rotation, setRotation] = useState<number>(initialCropData?.rotation || 0);
-  const [flipH, setFlipH] = useState<boolean>(Boolean(initialCropData?.flipH));
-  const [flipV, setFlipV] = useState<boolean>(Boolean(initialCropData?.flipV));
-
-  const [bgColor] = useState<string>(
-    initialCropData?.bgColor || (outputFormat === 'jpeg' ? '#FFFFFF' : 'transparent')
-  );
-
-  // Mobile pinch-to-zoom tracking
+  // Touch tracking & performance refs
   const touchDistRef = useRef<number | null>(null);
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // CRITICAL INVARIANT: Compute normalized crop locked to aspect ratio that
-  // is GUARANTEED to be 100% INSIDE the image:
-  // cropNorm.x >= 0, cropNorm.y >= 0, cropNorm.x + width <= 1, cropNorm.y + height <= 1
-  // The crop box NEVER covers the background.
-  // ─────────────────────────────────────────────────────────────────────────
-  const computeFittedCropNorm = useCallback(
-    (ratio: number, nw: number, nh: number, current?: CropNorm): CropNorm => {
-      if (nw <= 0 || nh <= 0) return { x: 0, y: 0, width: 1, height: 1 };
-
-      const effectiveRatio = ratio > 0 ? ratio : nw / nh;
-      // K = (height in norm units) / (width in norm units)
-      // Since widthPx = normW * nw, heightPx = normH * nh:
-      // widthPx / heightPx = (normW * nw) / (normH * nh) = effectiveRatio
-      // => normH = normW * (nw / (nh * effectiveRatio))
-      const K = nw / (nh * effectiveRatio);
-
-      let maxW = 1.0;
-      let maxH = 1.0;
-
-      if (K <= 1.0) {
-        // Image is taller than target ratio: width is limited to 1.0
-        maxW = 1.0;
-        maxH = K;
-      } else {
-        // Image is wider than target ratio: height is limited to 1.0
-        maxH = 1.0;
-        maxW = 1.0 / K;
-      }
-
-      // Safe clamp
-      const w = Math.max(0.05, Math.min(1.0, maxW));
-      const h = Math.max(0.05, Math.min(1.0, maxH));
-
-      // Keep centered or preserve center of current crop
-      const cx = current ? current.x + current.width / 2 : 0.5;
-      const cy = current ? current.y + current.height / 2 : 0.5;
-
-      const x = Math.max(0, Math.min(1.0 - w, cx - w / 2));
-      const y = Math.max(0, Math.min(1.0 - h, cy - h / 2));
-
-      return { x, y, width: w, height: h };
-    },
-    []
-  );
+  const rafIdRef = useRef<number | null>(null);
+  const notifyTimerRef = useRef<number | null>(null);
 
   // Synchronize naturalDimensions prop whenever provided
   useEffect(() => {
     if (naturalDimensions && naturalDimensions.width > 0 && naturalDimensions.height > 0) {
       setNaturalSize(naturalDimensions);
-      setCropNorm((prev) =>
-        computeFittedCropNorm(targetAspectRatio, naturalDimensions.width, naturalDimensions.height, prev)
-      );
     }
-  }, [naturalDimensions, targetAspectRatio, computeFittedCropNorm]);
+  }, [naturalDimensions]);
 
   // Actively probe image directly via Image() constructor to ensure immediate dimension resolution
   useEffect(() => {
@@ -158,11 +106,10 @@ export const DedicatedCropper: React.FC<DedicatedCropperProps> = ({
       const nh = probe.naturalHeight || probe.height;
       if (nw > 0 && nh > 0) {
         setNaturalSize({ width: nw, height: nh });
-        setCropNorm((prev) => computeFittedCropNorm(targetAspectRatio, nw, nh, prev));
       }
     };
     probe.src = imageUrl;
-  }, [imageUrl, targetAspectRatio, computeFittedCropNorm]);
+  }, [imageUrl]);
 
   // 1. Instant Viewport Tracking via ResizeObserver
   useEffect(() => {
@@ -201,313 +148,208 @@ export const DedicatedCropper: React.FC<DedicatedCropperProps> = ({
     const nh = img.naturalHeight || img.height;
     if (nw > 0 && nh > 0) {
       setNaturalSize({ width: nw, height: nh });
-      setCropNorm((prev) => computeFittedCropNorm(targetAspectRatio, nw, nh, prev));
     }
   };
 
-  // When targetAspectRatio changes: re-fit cropNorm strictly within image bounds
+  // Dimensions accounting for 90° / 270° rotation transposition
+  const isTransposed = Math.abs(rotation) % 180 !== 0;
+  const nw = naturalSize ? (isTransposed ? naturalSize.height : naturalSize.width) : 800;
+  const nh = naturalSize ? (isTransposed ? naturalSize.width : naturalSize.height) : 600;
+
+  // Reset custom crop box when aspect ratio changes
   useEffect(() => {
-    if (!naturalSize || targetAspectRatio <= 0) return;
-    setCropNorm((prev) => computeFittedCropNorm(targetAspectRatio, naturalSize.width, naturalSize.height, prev));
-  }, [targetAspectRatio, naturalSize, computeFittedCropNorm]);
+    setCustomBox(null);
+  }, [targetAspectRatio]);
 
-  // Current active crop (temporary during handle drag, or settled cropNorm)
-  const activeCrop = dragState ? dragState.tempCropNorm : cropNorm;
-
-  // 2. Synchronize Normalized Crop to Parent Processor
-  useEffect(() => {
-    if (!naturalSize || activeCrop.width <= 0 || activeCrop.height <= 0) return;
-
-    const relW = 1 / activeCrop.width;
-    const relH = 1 / activeCrop.height;
-    const relX = -activeCrop.x / activeCrop.width;
-    const relY = -activeCrop.y / activeCrop.height;
-
-    onChange({
-      relX: Number(relX.toFixed(5)),
-      relY: Number(relY.toFixed(5)),
-      relW: Number(relW.toFixed(5)),
-      relH: Number(relH.toFixed(5)),
-      rotation: Math.round(rotation),
-      flipH,
-      flipV,
-      bgColor,
-    });
-  }, [activeCrop, rotation, flipH, flipV, bgColor, naturalSize, onChange]);
-
-  // 3. Dynamic Screen Coordinate Calculations
-  // Guarantees: CropBox is 100% SUBSET of Image at all times
+  // 2. Geometry calculations:
+  // - The image scale depends ONLY on viewport and imageZoom.
+  // - The cropper box screen dimensions do NOT change when zooming the image!
   const layout = useMemo(() => {
     const vw = viewport.width || 600;
     const vh = viewport.height || 400;
 
-    const nw = naturalSize?.width || 800;
-    const nh = naturalSize?.height || 600;
-
-    const margin = 40;
+    const margin = 32;
     const availW = Math.max(60, vw - margin * 2);
     const availH = Math.max(60, vh - margin * 2);
 
-    // Compute aspect ratio of current crop
-    const cropAspect =
-      targetAspectRatio > 0
-        ? targetAspectRatio
-        : (activeCrop.width * nw) / (activeCrop.height * nh || 1);
+    // Fit image comfortably inside the viewport (zoom = 1.0)
+    const baseScale = Math.min(availW / nw, availH / nh);
 
-    // Fit crop frame comfortably centered in the available viewport
-    let frameW = availW;
-    let frameH = frameW / cropAspect;
-    if (frameH > availH) {
-      frameH = availH;
-      frameW = frameH * cropAspect;
-    }
+    // Base unzoomed image dimensions (FOR DEFAULT CROP BOX)
+    const baseImgW = nw * baseScale;
+    const baseImgH = nh * baseScale;
+    const baseImgX = (vw - baseImgW) / 2;
+    const baseImgY = (vh - baseImgH) / 2;
 
-    const frameX = (vw - frameW) / 2;
-    const frameY = (vh - frameH) / 2;
-
-    // When actively dragging a corner handle, keep base image position steady
-    if (dragState && dragState.mode !== 'move') {
-      const imgScale = dragState.baseImgScale;
-      const imgX = dragState.baseImgX;
-      const imgY = dragState.baseImgY;
-      const imgW = nw * imgScale;
-      const imgH = nh * imgScale;
-
-      const boxX = imgX + activeCrop.x * imgW;
-      const boxY = imgY + activeCrop.y * imgH;
-      const boxW = activeCrop.width * imgW;
-      const boxH = activeCrop.height * imgH;
-
-      return {
-        frameX,
-        frameY,
-        frameW,
-        frameH,
-        imgX,
-        imgY,
-        imgW,
-        imgH,
-        imgScale,
-        boxX,
-        boxY,
-        boxW,
-        boxH,
-      };
-    }
-
-    // Default / Settled state:
-    // Auto-zoom: userZoom is clamped >= 1.0 so image is NEVER smaller than crop box
-    const effectiveZoom = Math.max(1.0, userZoom);
-    const imgScale = (frameW / (activeCrop.width * nw)) * effectiveZoom;
+    // Zoomed image geometry
+    const imgScale = baseScale * Math.max(1.0, imageZoom);
     const imgW = nw * imgScale;
     const imgH = nh * imgScale;
 
-    // Image top-left so that activeCrop aligns with frame
-    const imgX = frameX - activeCrop.x * nw * imgScale;
-    const imgY = frameY - activeCrop.y * nh * imgScale;
+    // Center image in viewport with pan offset
+    const imgX = (vw - imgW) / 2 + imagePan.x;
+    const imgY = (vh - imgH) / 2 + imagePan.y;
+
+    // Default crop box dimensions (fitted to aspect ratio inside unzoomed image)
+    // NOTE: This does NOT depend on imageZoom, so zooming the image does NOT scale the crop box!
+    const aspect = targetAspectRatio > 0 ? targetAspectRatio : nw / nh;
+    let defaultBoxW = baseImgW;
+    let defaultBoxH = defaultBoxW / aspect;
+    if (defaultBoxH > baseImgH) {
+      defaultBoxH = baseImgH;
+      defaultBoxW = defaultBoxH * aspect;
+    }
+
+    const defaultBoxX = baseImgX + (baseImgW - defaultBoxW) / 2;
+    const defaultBoxY = baseImgY + (baseImgH - defaultBoxH) / 2;
+
+    // STRICT CLAMP: The crop box MUST stay 100% within the image bounds [imgX, imgY, imgX + imgW, imgY + imgH]
+    const initialW = customBox ? customBox.width : defaultBoxW;
+    let safeBoxW = Math.min(initialW, imgW);
+    let safeBoxH = safeBoxW / aspect;
+    if (safeBoxH > imgH) {
+      safeBoxH = imgH;
+      safeBoxW = safeBoxH * aspect;
+    }
+
+    const minX = imgX;
+    const maxX = Math.max(minX, imgX + imgW - safeBoxW);
+    const minY = imgY;
+    const maxY = Math.max(minY, imgY + imgH - safeBoxH);
+
+    const rawBoxX = customBox ? customBox.x : defaultBoxX;
+    const rawBoxY = customBox ? customBox.y : defaultBoxY;
+
+    const boxX = Math.max(minX, Math.min(maxX, rawBoxX));
+    const boxY = Math.max(minY, Math.min(maxY, rawBoxY));
+    const boxW = safeBoxW;
+    const boxH = safeBoxH;
 
     return {
-      frameX,
-      frameY,
-      frameW,
-      frameH,
+      vw,
+      vh,
       imgX,
       imgY,
       imgW,
       imgH,
       imgScale,
-      boxX: frameX,
-      boxY: frameY,
-      boxW: frameW,
-      boxH: frameH,
+      boxX,
+      boxY,
+      boxW,
+      boxH,
+      baseScale,
     };
-  }, [viewport, naturalSize, targetAspectRatio, activeCrop, userZoom, dragState]);
+  }, [viewport, nw, nh, targetAspectRatio, imageZoom, imagePan, customBox]);
 
-  // 4. Pointer Drag Handling (Panning Image & Corner Resizing)
-  // ALL operations strictly enforce: crop box NEVER exceeds image boundaries [0, 1]
-  const handlePointerDown = (e: React.PointerEvent, mode: DragMode) => {
-    e.preventDefault();
-    e.stopPropagation();
+  // 3. Throttled notification to parent processor (ZERO lag during rapid movement/zoom)
+  const emitChange = useCallback(
+    (immediate = false) => {
+      const { boxW, boxH, imgW, imgH, imgX, boxX, imgY, boxY } = layout;
+      if (boxW <= 0 || boxH <= 0) return;
 
-    setDragState({
-      mode,
-      startPointerX: e.clientX,
-      startPointerY: e.clientY,
-      startCropNorm: { ...cropNorm },
-      tempCropNorm: { ...cropNorm },
-      baseImgScale: layout.imgScale,
-      baseImgX: layout.imgX,
-      baseImgY: layout.imgY,
-    });
+      const relW = imgW / boxW;
+      const relH = imgH / boxH;
+      const relX = (imgX - boxX) / boxW;
+      const relY = (imgY - boxY) / boxH;
 
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!dragState || !naturalSize) return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    const nw = naturalSize.width;
-    const nh = naturalSize.height;
-    const dx = e.clientX - dragState.startPointerX;
-    const dy = e.clientY - dragState.startPointerY;
-    const { mode, startCropNorm, baseImgScale } = dragState;
-    const imgW = nw * baseImgScale;
-    const imgH = nh * baseImgScale;
-
-    if (imgW <= 0 || imgH <= 0) return;
-
-    if (mode === 'move') {
-      // Panning crop area across the image: strictly clamped inside [0, 1]
-      const dNormX = -dx / imgW;
-      const dNormY = -dy / imgH;
-
-      const newX = Math.max(0, Math.min(1.0 - startCropNorm.width, startCropNorm.x + dNormX));
-      const newY = Math.max(0, Math.min(1.0 - startCropNorm.height, startCropNorm.y + dNormY));
-
-      const updated: CropNorm = {
-        ...startCropNorm,
-        x: newX,
-        y: newY,
+      const trigger = () => {
+        onChange({
+          relX: Number(relX.toFixed(5)),
+          relY: Number(relY.toFixed(5)),
+          relW: Number(relW.toFixed(5)),
+          relH: Number(relH.toFixed(5)),
+          rotation: Math.round(rotation),
+          flipH,
+          flipV,
+          bgColor,
+        });
       };
 
-      setCropNorm(updated);
-      setDragState((prev) => (prev ? { ...prev, tempCropNorm: updated } : null));
-    } else {
-      // Corner handle resizing with aspect ratio locking and ZERO BOUNDARY OVERFLOW
-      const effectiveRatio =
-        targetAspectRatio > 0 ? targetAspectRatio : (startCropNorm.width * nw) / (startCropNorm.height * nh);
-      const K = nw / (nh * effectiveRatio);
-
-      if (mode === 'se') {
-        // Bottom-Right handle: top-left (startCropNorm.x, startCropNorm.y) is anchored
-        const maxAvailableW = 1.0 - startCropNorm.x;
-        const maxAvailableH = 1.0 - startCropNorm.y;
-        const maxAllowedW = Math.min(maxAvailableW, maxAvailableH / K);
-        const minAllowedW = Math.min(0.05, maxAllowedW);
-
-        const targetW = startCropNorm.width + dx / imgW;
-        const newW = Math.max(minAllowedW, Math.min(maxAllowedW, targetW));
-        const newH = newW * K;
-
-        setDragState((prev) =>
-          prev
-            ? {
-                ...prev,
-                tempCropNorm: {
-                  x: startCropNorm.x,
-                  y: startCropNorm.y,
-                  width: newW,
-                  height: newH,
-                },
-              }
-            : null
-        );
-      } else if (mode === 'sw') {
-        // Bottom-Left handle: top-right (startRight, startCropNorm.y) is anchored
-        const startRight = startCropNorm.x + startCropNorm.width;
-        const maxAvailableW = startRight;
-        const maxAvailableH = 1.0 - startCropNorm.y;
-        const maxAllowedW = Math.min(maxAvailableW, maxAvailableH / K);
-        const minAllowedW = Math.min(0.05, maxAllowedW);
-
-        const targetW = startCropNorm.width - dx / imgW;
-        const newW = Math.max(minAllowedW, Math.min(maxAllowedW, targetW));
-        const newH = newW * K;
-        const newX = startRight - newW;
-
-        setDragState((prev) =>
-          prev
-            ? {
-                ...prev,
-                tempCropNorm: {
-                  x: Math.max(0, newX),
-                  y: startCropNorm.y,
-                  width: newW,
-                  height: newH,
-                },
-              }
-            : null
-        );
-      } else if (mode === 'ne') {
-        // Top-Right handle: bottom-left (startCropNorm.x, startBottom) is anchored
-        const startBottom = startCropNorm.y + startCropNorm.height;
-        const maxAvailableW = 1.0 - startCropNorm.x;
-        const maxAvailableH = startBottom;
-        const maxAllowedW = Math.min(maxAvailableW, maxAvailableH / K);
-        const minAllowedW = Math.min(0.05, maxAllowedW);
-
-        const targetW = startCropNorm.width + dx / imgW;
-        const newW = Math.max(minAllowedW, Math.min(maxAllowedW, targetW));
-        const newH = newW * K;
-        const newY = startBottom - newH;
-
-        setDragState((prev) =>
-          prev
-            ? {
-                ...prev,
-                tempCropNorm: {
-                  x: startCropNorm.x,
-                  y: Math.max(0, newY),
-                  width: newW,
-                  height: newH,
-                },
-              }
-            : null
-        );
-      } else if (mode === 'nw') {
-        // Top-Left handle: bottom-right (startRight, startBottom) is anchored
-        const startRight = startCropNorm.x + startCropNorm.width;
-        const startBottom = startCropNorm.y + startCropNorm.height;
-        const maxAvailableW = startRight;
-        const maxAvailableH = startBottom;
-        const maxAllowedW = Math.min(maxAvailableW, maxAvailableH / K);
-        const minAllowedW = Math.min(0.05, maxAllowedW);
-
-        const targetW = startCropNorm.width - dx / imgW;
-        const newW = Math.max(minAllowedW, Math.min(maxAllowedW, targetW));
-        const newH = newW * K;
-        const newX = startRight - newW;
-        const newY = startBottom - newH;
-
-        setDragState((prev) =>
-          prev
-            ? {
-                ...prev,
-                tempCropNorm: {
-                  x: Math.max(0, newX),
-                  y: Math.max(0, newY),
-                  width: newW,
-                  height: newH,
-                },
-              }
-            : null
-        );
+      if (immediate) {
+        if (notifyTimerRef.current) {
+          window.clearTimeout(notifyTimerRef.current);
+          notifyTimerRef.current = null;
+        }
+        trigger();
+        return;
       }
-    }
-  };
 
-  const handlePointerUp = (e: React.PointerEvent) => {
-    if (dragState) {
-      // Commit temporary crop and auto-zoom to the selected area
-      setCropNorm(dragState.tempCropNorm);
-      setDragState(null);
-      try {
-        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch {
-        // Fallback
-      }
-    }
-  };
+      if (notifyTimerRef.current) return;
+      notifyTimerRef.current = window.setTimeout(() => {
+        notifyTimerRef.current = null;
+        trigger();
+      }, 100);
+    },
+    [layout, onChange, rotation, flipH, flipV, bgColor]
+  );
 
-  // 5. Mouse Wheel & Touch Zoom Controls (Clamped >= 1.0 so cropper never covers bg)
+  // Initial and rotation synchronization
+  useEffect(() => {
+    if (naturalSize) {
+      emitChange(true);
+    }
+  }, [rotation, naturalSize, layout.boxW, layout.boxH]);
+
+  // 4. Mouse Wheel Zoom: ZOOMS ONLY THE IMAGE, THE CROPPER REMAINS AT ITS FIXED SCREEN SIZE!
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.08 : 0.92;
-    setUserZoom((z) => Math.min(5.0, Math.max(1.0, z * factor)));
+    e.stopPropagation();
+
+    const factor = e.deltaY < 0 ? 1.10 : 0.90;
+    const oldZoom = imageZoom;
+
+    const { vw, vh, baseScale, boxX, boxY, boxW, boxH } = layout;
+    const minRequiredScale = Math.max(boxW / nw, boxH / nh);
+    const minRequiredZoom = Math.max(1.0, minRequiredScale / baseScale);
+    const newZoom = Math.max(minRequiredZoom, Math.min(5.0, oldZoom * factor));
+    if (newZoom === oldZoom && factor < 1.0) return;
+
+    const rect = containerRef.current?.getBoundingClientRect();
+    const cursorX = rect ? e.clientX - rect.left : vw / 2;
+    const cursorY = rect ? e.clientY - rect.top : vh / 2;
+
+    const oldScale = baseScale * oldZoom;
+    const newScale = baseScale * newZoom;
+    const scaleRatio = newScale / oldScale;
+
+    // Anchor zoom smoothly around cursor
+    const oldImgW = nw * oldScale;
+    const oldImgH = nh * oldScale;
+    const oldImgX = (vw - oldImgW) / 2 + imagePan.x;
+    const oldImgY = (vh - oldImgH) / 2 + imagePan.y;
+
+    const newImgW = nw * newScale;
+    const newImgH = nh * newScale;
+    const newBaseX = (vw - newImgW) / 2;
+    const newBaseY = (vh - newImgH) / 2;
+
+    const targetImgX = cursorX - (cursorX - oldImgX) * scaleRatio;
+    const targetImgY = cursorY - (cursorY - oldImgY) * scaleRatio;
+
+    const rawPanX = newZoom <= 1.0 ? 0 : targetImgX - newBaseX;
+    const rawPanY = newZoom <= 1.0 ? 0 : targetImgY - newBaseY;
+
+    // Strict clamp: ensure image always encloses crop box
+    const minImgX = boxX + boxW - newImgW;
+    const maxImgX = boxX;
+    const nextPanX = Math.max(minImgX - newBaseX, Math.min(maxImgX - newBaseX, rawPanX));
+
+    const minImgY = boxY + boxH - newImgH;
+    const maxImgY = boxY;
+    const nextPanY = Math.max(minImgY - newBaseY, Math.min(maxImgY - newBaseY, rawPanY));
+
+    setImageZoom(newZoom);
+    setImagePan({ x: nextPanX, y: nextPanY });
+    emitChange(false);
+
+    // NOTICE: customBox (the cropper) is NOT modified!
+    // The cropper retains its exact screen dimensions while the image magnifies/contracts under it!
+    setImageZoom(newZoom);
+    setImagePan({ x: nextPanX, y: nextPanY });
+    emitChange(false);
   };
 
+  // 5. Touch Pinch Zoom Handling (ZOOMS ONLY THE IMAGE)
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 2) {
       const t1 = e.touches[0];
@@ -524,7 +366,10 @@ export const DedicatedCropper: React.FC<DedicatedCropperProps> = ({
       const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
       const factor = currentDist / touchDistRef.current;
       touchDistRef.current = currentDist;
-      setUserZoom((z) => Math.min(5.0, Math.max(1.0, z * factor)));
+
+      const newZoom = Math.max(1.0, Math.min(5.0, imageZoom * factor));
+      setImageZoom(newZoom);
+      emitChange(false);
     }
   };
 
@@ -532,17 +377,181 @@ export const DedicatedCropper: React.FC<DedicatedCropperProps> = ({
     touchDistRef.current = null;
   };
 
-  const handleResetToFit = () => {
-    setUserZoom(1.0);
-    if (naturalSize) {
-      setCropNorm(computeFittedCropNorm(targetAspectRatio, naturalSize.width, naturalSize.height));
-    }
-    setRotation(0);
-    setFlipH(false);
-    setFlipV(false);
+  // 6. Pointer Drag Handling:
+  // - Mode 'move': Moves ONLY the crop box across the picture (picture is NOT moved or resized)
+  // - Corner modes ('nw', 'ne', 'se', 'sw'): Resizes ONLY the crop box (picture is NOT moved or resized)
+  // - Mode 'panImage': Panning the background image when zoomed in
+  const handlePointerDown = (e: React.PointerEvent, mode: DragMode) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    setDragState({
+      mode,
+      startPointerX: e.clientX,
+      startPointerY: e.clientY,
+      startBoxX: layout.boxX,
+      startBoxY: layout.boxY,
+      startBoxW: layout.boxW,
+      startBoxH: layout.boxH,
+      startPanX: imagePan.x,
+      startPanY: imagePan.y,
+    });
+
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
 
-  const currentZoomPercent = Math.round(userZoom * 100);
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!dragState || !naturalSize) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const clientX = e.clientX;
+    const clientY = e.clientY;
+
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current);
+    }
+
+    rafIdRef.current = requestAnimationFrame(() => {
+      if (!dragState) return;
+      const { mode, startPointerX, startPointerY, startBoxX, startBoxY, startBoxW, startBoxH, startPanX, startPanY } = dragState;
+      const dx = clientX - startPointerX;
+      const dy = clientY - startPointerY;
+
+      if (mode === 'panImage') {
+        const { vw, vh, imgW, imgH, boxX, boxY, boxW, boxH } = layout;
+        const newBaseX = (vw - imgW) / 2;
+        const newBaseY = (vh - imgH) / 2;
+
+        const desiredPanX = startPanX + dx;
+        const desiredPanY = startPanY + dy;
+
+        // Ensure image always covers crop box
+        const minImgX = boxX + boxW - imgW;
+        const maxImgX = boxX;
+        const minPanX = minImgX - newBaseX;
+        const maxPanX = maxImgX - newBaseX;
+        const clampedPanX = Math.max(minPanX, Math.min(maxPanX, desiredPanX));
+
+        const minImgY = boxY + boxH - imgH;
+        const maxImgY = boxY;
+        const minPanY = minImgY - newBaseY;
+        const maxPanY = maxImgY - newBaseY;
+        const clampedPanY = Math.max(minPanY, Math.min(maxPanY, desiredPanY));
+
+        setImagePan({
+          x: clampedPanX,
+          y: clampedPanY,
+        });
+        emitChange(false);
+        return;
+      }
+
+      if (mode === 'move') {
+        // STRICT CLAMP: Crop box CANNOT move outside the image area
+        const { imgX, imgY, imgW, imgH } = layout;
+        const minX = imgX;
+        const maxX = Math.max(minX, imgX + imgW - startBoxW);
+        const minY = imgY;
+        const maxY = Math.max(minY, imgY + imgH - startBoxH);
+
+        const newX = Math.max(minX, Math.min(maxX, startBoxX + dx));
+        const newY = Math.max(minY, Math.min(maxY, startBoxY + dy));
+
+        setCustomBox({
+          x: newX,
+          y: newY,
+          width: startBoxW,
+          height: startBoxH,
+        });
+        emitChange(false);
+      } else {
+        // Resizing ONLY the crop box via corner handles (STRICTLY CLAMPED INSIDE IMAGE)
+        const { imgX, imgY, imgW, imgH } = layout;
+        const aspect = targetAspectRatio > 0 ? targetAspectRatio : nw / nh;
+        const minW = 40;
+
+        if (mode === 'se') {
+          // Bottom-Right handle
+          const availW = Math.max(minW, imgX + imgW - startBoxX);
+          const availH = Math.max(minW / aspect, imgY + imgH - startBoxY);
+          const maxAllowedW = Math.min(availW, availH * aspect);
+
+          const targetW = Math.max(minW, Math.min(maxAllowedW, startBoxW + dx));
+          const targetH = targetW / aspect;
+          setCustomBox({
+            x: startBoxX,
+            y: startBoxY,
+            width: targetW,
+            height: targetH,
+          });
+        } else if (mode === 'sw') {
+          // Bottom-Left handle
+          const fixedRight = startBoxX + startBoxW;
+          const availW = Math.max(minW, fixedRight - imgX);
+          const availH = Math.max(minW / aspect, imgY + imgH - startBoxY);
+          const maxAllowedW = Math.min(availW, availH * aspect);
+
+          const targetW = Math.max(minW, Math.min(maxAllowedW, startBoxW - dx));
+          const targetH = targetW / aspect;
+          setCustomBox({
+            x: fixedRight - targetW,
+            y: startBoxY,
+            width: targetW,
+            height: targetH,
+          });
+        } else if (mode === 'ne') {
+          // Top-Right handle
+          const fixedBottom = startBoxY + startBoxH;
+          const availW = Math.max(minW, imgX + imgW - startBoxX);
+          const availH = Math.max(minW / aspect, fixedBottom - imgY);
+          const maxAllowedW = Math.min(availW, availH * aspect);
+
+          const targetW = Math.max(minW, Math.min(maxAllowedW, startBoxW + dx));
+          const targetH = targetW / aspect;
+          setCustomBox({
+            x: startBoxX,
+            y: fixedBottom - targetH,
+            width: targetW,
+            height: targetH,
+          });
+        } else if (mode === 'nw') {
+          // Top-Left handle
+          const fixedRight = startBoxX + startBoxW;
+          const fixedBottom = startBoxY + startBoxH;
+          const availW = Math.max(minW, fixedRight - imgX);
+          const availH = Math.max(minW / aspect, fixedBottom - imgY);
+          const maxAllowedW = Math.min(availW, availH * aspect);
+
+          const targetW = Math.max(minW, Math.min(maxAllowedW, startBoxW - dx));
+          const targetH = targetW / aspect;
+          setCustomBox({
+            x: fixedRight - targetW,
+            y: fixedBottom - targetH,
+            width: targetW,
+            height: targetH,
+          });
+        }
+        emitChange(false);
+      }
+    });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    if (dragState) {
+      setDragState(null);
+      emitChange(true);
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {
+        // Fallback
+      }
+    }
+  };
 
   return (
     <div className={`relative flex flex-col w-full h-full min-h-0 overflow-hidden select-none bg-surface-subtle dark:bg-black ${className}`}>
@@ -563,7 +572,16 @@ export const DedicatedCropper: React.FC<DedicatedCropperProps> = ({
           touchAction: 'none',
         }}
       >
-        {/* The Full Image: always rendered when imageUrl exists */}
+        {/* Background pan catcher when image is zoomed */}
+        {imageZoom > 1.0 && (
+          <div
+            onPointerDown={(e) => handlePointerDown(e, 'panImage')}
+            className="absolute inset-0 cursor-grab active:cursor-grabbing z-0"
+            title="Drag to pan image"
+          />
+        )}
+
+        {/* The Full Image: rendered in position, scales when wheel is scrolled */}
         {imageUrl && (
           <img
             src={imageUrl}
@@ -582,13 +600,13 @@ export const DedicatedCropper: React.FC<DedicatedCropperProps> = ({
               transformOrigin: 'center center',
               pointerEvents: 'none',
             }}
-            className="select-none transition-none rounded-none"
+            className="select-none transition-none rounded-none shadow-md"
           />
         )}
 
         {/* ─────────────────────────────────────────────────────────────
-            THE CROP BOX: GUARANTEED 100% WITHIN THE IMAGE AREA
-            Zero pixels outside the image, never covers the background
+            THE CROP BOX: PROMINENT, CRISP GRID & HIGH-CONTRAST HANDLES
+            Does NOT zoom with image; stays at its fixed screen size!
         ───────────────────────────────────────────────────────────── */}
         {layout.boxW > 0 && layout.boxH > 0 && (
           <div
@@ -598,72 +616,64 @@ export const DedicatedCropper: React.FC<DedicatedCropperProps> = ({
               top: `${Math.round(layout.boxY)}px`,
               width: `${Math.round(layout.boxW)}px`,
               height: `${Math.round(layout.boxH)}px`,
-              boxShadow: 'none', // NO dark overlay mask outside crop box!
+              boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.50)', // Semi-translucent dark mask outside crop box
             }}
             className={`shrink-0 ${
               cropEnabled
-                ? 'border-2 border-accent dark:border-white shadow-[0_0_0_1px_rgba(0,0,0,0.35)] shadow-xl'
-                : 'border-2 border-dashed border-accent/70 dark:border-white/60 shadow-lg'
+                ? 'border-2 border-accent shadow-[0_0_0_1px_rgba(0,0,0,0.7)]'
+                : 'border-2 border-accent opacity-80'
             } rounded-none z-10 transition-none`}
           >
-            {/* Movable Surface (drag inside to pan the image) */}
+            {/* Movable Surface (drag inside to move ONLY the crop box across the picture) */}
             <div
               onPointerDown={(e) => handlePointerDown(e, 'move')}
               className="absolute inset-0 cursor-move z-10"
               title="Drag inside to position crop area"
             />
 
-            {/* Dimension Label Badge inside Crop Frame */}
-            {dimensionLabel && (
-              <div className="absolute top-2 left-2 z-30 pointer-events-none px-2 py-0.5 rounded-md bg-surface-panel/95 text-text-main border border-surface-border dark:bg-black/80 dark:text-white dark:border-white/20 text-[11px] font-mono font-medium shadow-sm backdrop-blur-xs flex items-center gap-1.5 select-none">
-                <Crop className="w-3 h-3 text-accent shrink-0" />
-                <span>{dimensionLabel}</span>
-              </div>
-            )}
-
-            {/* Rule-of-Thirds Gridlines */}
+            {/* Rule-of-Thirds Gridlines: Crisp high-visibility lines with subtle shadow */}
             {cropEnabled && (
-              <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none z-20 opacity-30">
-                <div className="border-r border-b border-neutral-700/40 dark:border-white" />
-                <div className="border-r border-b border-neutral-700/40 dark:border-white" />
-                <div className="border-b border-neutral-700/40 dark:border-white" />
-                <div className="border-r border-b border-neutral-700/40 dark:border-white" />
-                <div className="border-r border-b border-neutral-700/40 dark:border-white" />
-                <div className="border-b border-neutral-700/40 dark:border-white" />
-                <div className="border-r border-b border-neutral-700/40 dark:border-white" />
-                <div className="border-r border-b border-neutral-700/40 dark:border-white" />
+              <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none z-20">
+                <div className="border-r border-b border-white/50 drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]" />
+                <div className="border-r border-b border-white/50 drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]" />
+                <div className="border-b border-white/50 drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]" />
+                <div className="border-r border-b border-white/50 drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]" />
+                <div className="border-r border-b border-white/50 drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]" />
+                <div className="border-b border-white/50 drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]" />
+                <div className="border-r border-b border-white/50 drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]" />
+                <div className="border-r border-b border-white/50 drop-shadow-[0_1px_1px_rgba(0,0,0,0.7)]" />
                 <div />
               </div>
             )}
 
             {/* Corner Viewfinder Brackets */}
-            <div className="absolute top-0 left-0 w-3.5 h-3.5 border-t-2 border-l-2 border-accent dark:border-white z-30 pointer-events-none" />
-            <div className="absolute top-0 right-0 w-3.5 h-3.5 border-t-2 border-r-2 border-accent dark:border-white z-30 pointer-events-none" />
-            <div className="absolute bottom-0 right-0 w-3.5 h-3.5 border-b-2 border-r-2 border-accent dark:border-white z-30 pointer-events-none" />
-            <div className="absolute bottom-0 left-0 w-3.5 h-3.5 border-b-2 border-l-2 border-accent dark:border-white z-30 pointer-events-none" />
+            <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-accent z-30 pointer-events-none" />
+            <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-accent z-30 pointer-events-none" />
+            <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-accent z-30 pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-accent z-30 pointer-events-none" />
 
-            {/* Interactive Corner Resize Handles */}
+            {/* Interactive Corner Resize Handles: Large, tactile, high contrast */}
             {cropEnabled && (
               <>
                 <div
                   onPointerDown={(e) => handlePointerDown(e, 'nw')}
                   title="Resize crop area"
-                  className="absolute -top-1.5 -left-1.5 w-4 h-4 bg-white border-2 border-neutral-900 rounded-none shadow-md cursor-nwse-resize z-40 hover:scale-125 transition-transform"
+                  className="absolute -top-2.5 -left-2.5 w-5 h-5 bg-accent border-2 border-black/80 rounded-xs cursor-nwse-resize z-40 hover:scale-110 shadow-md transition-transform"
                 />
                 <div
                   onPointerDown={(e) => handlePointerDown(e, 'ne')}
                   title="Resize crop area"
-                  className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-white border-2 border-neutral-900 rounded-none shadow-md cursor-nesw-resize z-40 hover:scale-125 transition-transform"
+                  className="absolute -top-2.5 -right-2.5 w-5 h-5 bg-accent border-2 border-black/80 rounded-xs cursor-nesw-resize z-40 hover:scale-110 shadow-md transition-transform"
                 />
                 <div
                   onPointerDown={(e) => handlePointerDown(e, 'se')}
                   title="Resize crop area"
-                  className="absolute -bottom-1.5 -right-1.5 w-4 h-4 bg-white border-2 border-neutral-900 rounded-none shadow-md cursor-nwse-resize z-40 hover:scale-125 transition-transform"
+                  className="absolute -bottom-2.5 -right-2.5 w-5 h-5 bg-accent border-2 border-black/80 rounded-xs cursor-nwse-resize z-40 hover:scale-110 shadow-md transition-transform"
                 />
                 <div
                   onPointerDown={(e) => handlePointerDown(e, 'sw')}
                   title="Resize crop area"
-                  className="absolute -bottom-1.5 -left-1.5 w-4 h-4 bg-white border-2 border-neutral-900 rounded-none shadow-md cursor-nesw-resize z-40 hover:scale-125 transition-transform"
+                  className="absolute -bottom-2.5 -left-2.5 w-5 h-5 bg-accent border-2 border-black/80 rounded-xs cursor-nesw-resize z-40 hover:scale-110 shadow-md transition-transform"
                 />
               </>
             )}
@@ -672,130 +682,35 @@ export const DedicatedCropper: React.FC<DedicatedCropperProps> = ({
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
-          BOTTOM GALLERY STATUS BAR
-          Rotator dial track removed; clean rotation & flip tools + zoom
+          BOTTOM GALLERY STATUS BAR (Only shown when not provided by parent)
       ───────────────────────────────────────────────────────────── */}
-      <div className="shrink-0 px-4 py-2.5 bg-surface-panel/95 border-t border-surface-border z-20 flex flex-wrap items-center justify-between gap-3 text-xs">
-        {/* Left: Format, dimensions, file size */}
-        <div className="flex items-center gap-2.5 font-mono text-[11px] text-text-muted shrink-0">
-          <span className="font-bold text-text-main uppercase tracking-wider">
-            {outputFormat.toUpperCase()}
-          </span>
-          {naturalSize ? (
-            <span>
-              {naturalSize.width} &times; {naturalSize.height}
-            </span>
-          ) : (
-            <span>Loading...</span>
-          )}
-          {fileSize ? (
-            <span>{formatBytes(fileSize)}</span>
-          ) : null}
-        </div>
-
-        {/* Center: Clean Quick Rotation & Flip Controls */}
-        <div className="flex items-center justify-center gap-1.5 sm:gap-2 text-xs text-text-main mx-auto">
+      {onRotationChange === undefined && (
+        <div className="shrink-0 min-h-[44px] px-4 py-1.5 bg-surface-panel border-t border-surface-border z-10 flex items-center justify-end gap-1.5 text-xs select-none">
           {/* Rotate CCW 90° */}
           <button
             type="button"
-            onClick={() => setRotation((r) => (r - 90 + 360) % 360)}
+            onClick={() => handleRotate(-90)}
             title="Rotate 90° counter-clockwise"
-            className="p-1.5 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
+            aria-label="Rotate 90 degrees counter-clockwise"
+            className="min-h-[36px] px-2.5 rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle text-text-muted hover:text-text-main inline-flex items-center justify-center gap-1.5 text-xs font-semibold font-mono transition-colors cursor-pointer"
           >
             <RotateCcw className="w-4 h-4" />
+            <span className="hidden sm:inline">Rotate -90°</span>
           </button>
 
           {/* Rotate CW 90° */}
           <button
             type="button"
-            onClick={() => setRotation((r) => (r + 90) % 360)}
+            onClick={() => handleRotate(90)}
             title="Rotate 90° clockwise"
-            className="p-1.5 rounded-lg text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
+            aria-label="Rotate 90 degrees clockwise"
+            className="min-h-[36px] px-2.5 rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle text-text-muted hover:text-text-main inline-flex items-center justify-center gap-1.5 text-xs font-semibold font-mono transition-colors cursor-pointer"
           >
             <RotateCw className="w-4 h-4" />
-          </button>
-
-          <div className="h-4 w-px bg-surface-border" />
-
-          {/* Flip Horizontal */}
-          <button
-            type="button"
-            onClick={() => setFlipH((f) => !f)}
-            title="Flip horizontally"
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-              flipH
-                ? 'bg-accent/20 text-accent font-bold'
-                : 'text-text-muted hover:text-text-main hover:bg-surface-subtle'
-            }`}
-          >
-            <FlipHorizontal className="w-4 h-4" />
-          </button>
-
-          {/* Flip Vertical */}
-          <button
-            type="button"
-            onClick={() => setFlipV((f) => !f)}
-            title="Flip vertically"
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-              flipV
-                ? 'bg-accent/20 text-accent font-bold'
-                : 'text-text-muted hover:text-text-main hover:bg-surface-subtle'
-            }`}
-          >
-            <FlipVertical className="w-4 h-4" />
-          </button>
-
-          {/* Reset angle / flips if modified */}
-          {(rotation !== 0 || flipH || flipV) && (
-            <button
-              type="button"
-              onClick={() => {
-                setRotation(0);
-                setFlipH(false);
-                setFlipV(false);
-              }}
-              title="Reset rotation & flip to 0°"
-              className="px-2 py-0.5 rounded text-[10px] font-mono font-medium text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer border border-surface-border ml-1"
-            >
-              Reset 0°
-            </button>
-          )}
-        </div>
-
-        {/* Right: Gallery Zoom Controls */}
-        <div className="flex items-center gap-1.5 text-text-muted shrink-0">
-          <button
-            type="button"
-            onClick={() => setUserZoom((z) => Math.max(1.0, z * 0.8))}
-            title="Zoom out"
-            className="p-1 rounded-md hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
-          >
-            <ZoomOut className="w-3.5 h-3.5" />
-          </button>
-
-          <span className="text-[11px] font-mono w-10 text-center select-none text-text-main font-medium">
-            {currentZoomPercent}%
-          </span>
-
-          <button
-            type="button"
-            onClick={() => setUserZoom((z) => Math.min(5.0, z * 1.25))}
-            title="Zoom in"
-            className="p-1 rounded-md hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
-          >
-            <ZoomIn className="w-3.5 h-3.5" />
-          </button>
-
-          <button
-            type="button"
-            onClick={handleResetToFit}
-            title="Fit to screen"
-            className="p-1 rounded-md hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer ml-1"
-          >
-            <Maximize2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Rotate +90°</span>
           </button>
         </div>
-      </div>
+      )}
     </div>
   );
 };

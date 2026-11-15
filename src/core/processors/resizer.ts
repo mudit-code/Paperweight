@@ -28,7 +28,7 @@ export interface ResizerOptions {
   targetWidth?: number;
   targetHeight?: number;
   dpi?: number;
-  outputFormat?: 'jpeg' | 'png' | 'webp';
+  outputFormat?: 'original' | 'jpeg' | 'png' | 'webp';
   targetSizeEnabled?: boolean;
   maxSizeKB?: number;
   minSizeKB?: number;
@@ -70,6 +70,67 @@ export function convertFromPixels(pixels: number, unit: DimensionUnit, dpi: numb
 }
 
 /**
+ * Safely pads a JPEG file to meet a strict minimum file size requirement using
+ * standard-compliant JPEG COM (Comment 0xFFFE) metadata segments.
+ * Fully valid, does not affect image pixels or decoding, and ensures strict portal compliance.
+ */
+async function padJpegBlob(blob: Blob, minSizeBytes: number, maxSizeBytes: number): Promise<Blob> {
+  if (blob.size >= minSizeBytes) return blob;
+  const needed = minSizeBytes - blob.size;
+  // Target slightly inside the range: minSizeBytes + 1KB, capped strictly below maxSizeBytes
+  const targetExtra = Math.min(
+    needed + Math.min(1024, Math.floor((maxSizeBytes - minSizeBytes) / 4)),
+    maxSizeBytes - blob.size
+  );
+  if (targetExtra <= 4) return blob;
+
+  const buffer = await blob.arrayBuffer();
+  const uint8 = new Uint8Array(buffer);
+  // Verify JPEG SOI marker: 0xFF, 0xD8
+  if (uint8.length < 4 || uint8[0] !== 0xFF || uint8[1] !== 0xD8) {
+    return blob;
+  }
+
+  // Create standard JPEG COM (0xFFFE) chunks
+  const segments: Uint8Array[] = [];
+  let bytesLeft = targetExtra;
+
+  while (bytesLeft > 4) {
+    // Max chunk size in JPEG is 65535 bytes (including 2-byte length)
+    const chunkSize = Math.min(bytesLeft, 65535);
+    const payloadLen = chunkSize - 4; // 2 bytes marker (0xFF, 0xFE) + 2 bytes length field
+    if (payloadLen <= 0) break;
+
+    const chunk = new Uint8Array(chunkSize);
+    chunk[0] = 0xFF;
+    chunk[1] = 0xFE;
+    chunk[2] = (chunkSize - 2) >> 8;
+    chunk[3] = (chunkSize - 2) & 0xFF;
+    chunk.fill(0x20, 4); // Standard ASCII space padding
+    segments.push(chunk);
+    bytesLeft -= chunkSize;
+  }
+
+  if (segments.length === 0) return blob;
+
+  const totalSegmentsLen = segments.reduce((acc, s) => acc + s.length, 0);
+  const padded = new Uint8Array(uint8.length + totalSegmentsLen);
+
+  // Copy SOI (0xFFD8)
+  padded.set(uint8.subarray(0, 2), 0);
+  let offset = 2;
+  // Insert COM segments
+  for (const seg of segments) {
+    padded.set(seg, offset);
+    offset += seg.length;
+  }
+  // Copy remainder of the JPEG stream
+  padded.set(uint8.subarray(2), offset);
+
+  return new Blob([padded], { type: 'image/jpeg' });
+}
+
+/**
  * Crops, resizes, and optimizes an image to exact dimensions and target file size range.
  */
 export async function processSingleResizerImage(
@@ -90,14 +151,18 @@ export async function processSingleResizerImage(
   }
 
   onStepProgress?.(15, 'Loading image into memory...');
-  await new Promise((r) => setTimeout(r, 20));
 
   const unit: DimensionUnit = options.unit || 'px';
   const dpi = Number(options.dpi) || 300;
   const targetWidthPx = convertToPixels(Number(options.targetWidth) || 1200, unit, dpi);
   const targetHeightPx = convertToPixels(Number(options.targetHeight) || 1200, unit, dpi);
 
-  const format = options.outputFormat || 'jpeg';
+  let format = options.outputFormat || 'original';
+  if ((format as string) === 'original' || (format as string) === 'same') {
+    if (file.type?.includes('png')) format = 'png';
+    else if (file.type?.includes('webp')) format = 'webp';
+    else format = 'jpeg';
+  }
   const mimeType = format === 'png' ? 'image/png' : format === 'webp' ? 'image/webp' : 'image/jpeg';
   const extension = format === 'jpeg' ? '.jpg' : `.${format}`;
 
@@ -249,7 +314,6 @@ export async function processSingleResizerImage(
   }
 
   onStepProgress?.(30, 'Applied target dimensions & crop geometry...');
-  await new Promise((r) => setTimeout(r, 20));
 
   if (cancellationToken?.isCancelled) {
     throw new OperationCancelledError();
@@ -275,50 +339,66 @@ export async function processSingleResizerImage(
     const maxSizeBytes = maxSizeKB * 1024;
     const minSizeBytes = minSizeKB > 0 ? minSizeKB * 1024 : 0;
 
-    // Binary search quality between 0.10 and 0.96 to match file size constraints
-    let lowQ = 0.10;
-    let highQ = 0.96;
-    let bestBlob: Blob | null = null;
-    const maxIters = 7;
+    // PASS 1: Test high quality first (0.94)
+    onStepProgress?.(45, 'Optimizing file size (pass 1/3)...');
+    const highQ = 0.94;
+    const initialBlob = await toBlobWithQuality(highQ);
 
-    for (let iter = 0; iter < maxIters; iter++) {
-      if (cancellationToken?.isCancelled) throw new OperationCancelledError();
-      const midQ = Number(((lowQ + highQ) / 2).toFixed(2));
-      const stepPct = Math.round(35 + ((iter + 1) / maxIters) * 55); // 43% -> 90%
-      onStepProgress?.(stepPct, `Optimizing file size (pass ${iter + 1}/${maxIters})...`);
-      await new Promise((r) => setTimeout(r, 20));
-
-      const testBlob = await toBlobWithQuality(midQ);
-
-      if (testBlob.size <= maxSizeBytes) {
-        bestBlob = testBlob;
-        if (minSizeBytes > 0 && testBlob.size >= minSizeBytes) {
-          // Exact hit within range [min, max]
-          break;
+    if (initialBlob.size <= maxSizeBytes) {
+      // High quality is already under max!
+      if (minSizeBytes > 0 && initialBlob.size < minSizeBytes) {
+        // Under minimum requirement: since 0.94 is already below min, pad if JPEG
+        if (format === 'jpeg') {
+          finalBlob = await padJpegBlob(initialBlob, minSizeBytes, maxSizeBytes);
+        } else {
+          finalBlob = initialBlob;
         }
-        // Try higher quality while staying under max
-        lowQ = midQ;
       } else {
-        // Exceeded max size, reduce quality
-        highQ = midQ;
+        // Perfect hit in 1 pass!
+        finalBlob = initialBlob;
+      }
+    } else {
+      // Exceeds max size at high quality: fast binary search in max 4 iterations
+      let lowQ = 0.15;
+      let currHighQ = highQ;
+      let bestBlob: Blob | null = null;
+      const maxIters = 4;
+
+      for (let iter = 0; iter < maxIters; iter++) {
+        if (cancellationToken?.isCancelled) throw new OperationCancelledError();
+        const midQ = Number(((lowQ + currHighQ) / 2).toFixed(2));
+        const stepPct = Math.round(50 + ((iter + 1) / maxIters) * 40);
+        onStepProgress?.(stepPct, `Optimizing file size (pass ${iter + 2}/${maxIters + 1})...`);
+
+        const testBlob = await toBlobWithQuality(midQ);
+
+        if (testBlob.size <= maxSizeBytes) {
+          bestBlob = testBlob;
+          // If already very close to max or within [min, max], exit early
+          if (testBlob.size >= maxSizeBytes * 0.90 || (minSizeBytes > 0 && testBlob.size >= minSizeBytes)) {
+            break;
+          }
+          lowQ = midQ;
+        } else {
+          currHighQ = midQ;
+        }
+      }
+
+      finalBlob = bestBlob || (await toBlobWithQuality(0.15));
+
+      // Check min size padding after binary search
+      if (minSizeBytes > 0 && finalBlob.size < minSizeBytes && format === 'jpeg') {
+        finalBlob = await padJpegBlob(finalBlob, minSizeBytes, maxSizeBytes);
       }
     }
-
-    onStepProgress?.(92, 'Finalizing size optimization...');
-    await new Promise((r) => setTimeout(r, 20));
-    finalBlob = bestBlob || (await toBlobWithQuality(0.15));
   } else {
-    // Standard high-quality export
-    onStepProgress?.(55, 'Encoding image pixels...');
-    await new Promise((r) => setTimeout(r, 20));
+    // Standard high-quality export (1 pass)
+    onStepProgress?.(70, 'Encoding image pixels...');
     const defaultQuality = format === 'jpeg' ? 0.92 : format === 'webp' ? 0.90 : undefined;
     finalBlob = await toBlobWithQuality(defaultQuality ?? 0.92);
-    onStepProgress?.(92, 'Finalizing image blob...');
-    await new Promise((r) => setTimeout(r, 20));
   }
 
   onStepProgress?.(96, 'Saving processed image...');
-  await new Promise((r) => setTimeout(r, 20));
   const baseName = file.name.replace(/\.[^/.]+$/, '');
   const outFilename = `${baseName}_${targetWidthPx}x${targetHeightPx}${extension}`;
 
@@ -354,11 +434,13 @@ export async function processResizer(
     targetWidth: Number(options.targetWidth) || 1200,
     targetHeight: Number(options.targetHeight) || 1200,
     dpi: Number(options.dpi) || 300,
-    outputFormat: (options.outputFormat as 'jpeg' | 'png' | 'webp') || 'jpeg',
+    outputFormat: (options.outputFormat as 'original' | 'jpeg' | 'png' | 'webp') || 'original',
     targetSizeEnabled: Boolean(options.targetSizeEnabled),
     maxSizeKB: Number(options.maxSizeKB) || 200,
     minSizeKB: Number(options.minSizeKB) || 0,
     cropRect: options.cropRect as CropRect | undefined,
+    editorCrop: options.editorCrop as EditorCropData | undefined,
+    cropEnabled: options.cropEnabled !== false,
   };
 
   const items: CompressedItemResult[] = [];

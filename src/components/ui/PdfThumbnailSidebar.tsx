@@ -163,16 +163,16 @@ const ThumbnailItem: React.FC<ThumbnailItemProps> = React.memo(({
       ref={registerRef}
       type="button"
       onClick={onClick}
-      className="flex flex-col items-center group w-full cursor-pointer focus:outline-none select-none transition-transform active:scale-98"
+      className="flex flex-col items-center group w-full cursor-pointer select-none transition-colors duration-fast ease-out"
       aria-label={`Jump to page ${pageNumber}`}
       aria-current={isActive ? 'page' : undefined}
     >
       <div
         ref={containerRef}
-        className={`w-32 rounded-sm border overflow-hidden transition-all duration-150 relative bg-white shadow-2xs ${
+        className={`w-32 rounded-control border overflow-hidden transition-colors duration-fast ease-out relative bg-white ${
           isActive
-            ? 'ring-2 ring-accent border-accent shadow-md scale-[1.02]'
-            : 'border-surface-border group-hover:border-accent/60 group-hover:shadow-xs'
+            ? 'border-2 border-surface-border-focus'
+            : 'border-surface-border group-hover:border-surface-border-focus'
         }`}
         style={{
           aspectRatio: `1 / ${aspectRatio}`,
@@ -188,17 +188,17 @@ const ThumbnailItem: React.FC<ThumbnailItemProps> = React.memo(({
             loading="lazy"
           />
         ) : (
-          <div className="w-full h-full flex flex-col justify-center items-center p-3 gap-1.5 bg-surface-subtle/40">
-            <div className="w-full h-1.5 bg-surface-border-subtle/80 rounded animate-pulse" />
-            <div className="w-4/5 h-1.5 bg-surface-border-subtle/80 rounded animate-pulse" />
-            <div className="w-2/3 h-1.5 bg-surface-border-subtle/80 rounded animate-pulse" />
+          <div className="w-full h-full flex flex-col justify-center items-center p-3 gap-1.5 bg-surface-subtle">
+            <div className="w-full h-1.5 bg-surface-border rounded-control" />
+            <div className="w-4/5 h-1.5 bg-surface-border rounded-control" />
+            <div className="w-2/3 h-1.5 bg-surface-border rounded-control" />
           </div>
         )}
       </div>
       <span
-        className={`mt-1.5 text-[11px] font-mono transition-colors ${
+        className={`mt-1.5 text-xs font-mono transition-colors duration-fast ease-out ${
           isActive
-            ? 'text-accent font-bold'
+            ? 'bg-accent text-accent-contrast px-2 py-0.5 rounded-chip font-bold'
             : 'text-text-muted group-hover:text-text-main font-medium'
         }`}
       >
@@ -255,7 +255,7 @@ export const PdfThumbnailSidebar: React.FC<PdfThumbnailSidebarProps> = ({
     <aside
       ref={sidebarContainerRef}
       onScroll={handleSidebarScroll}
-      className="w-44 sm:w-48 md:w-52 bg-surface-panel border-r border-surface-border flex flex-col shrink-0 overflow-y-auto select-none py-4 px-3 space-y-4 shadow-inner custom-scrollbar z-20"
+      className="w-44 sm:w-48 md:w-52 bg-surface-panel border-r border-surface-border flex flex-col shrink-0 overflow-y-auto select-none py-4 px-3 space-y-4 custom-scrollbar z-20"
       style={{
         overscrollBehavior: 'contain',
       }}

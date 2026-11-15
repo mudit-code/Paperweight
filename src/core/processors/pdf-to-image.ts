@@ -88,6 +88,14 @@ export async function processPdfToImage(
       pagesToRender = Array.from({ length: numPages }, (_, i) => i + 1);
     }
 
+    if (pagesToRender.length === 0) {
+      throw new PaperweightError({
+        code: 'ERR_INVALID_PAGE_RANGE',
+        title: 'Invalid Page Range',
+        message: `The page selection "${customPagesStr}" is invalid for ${file.name} (${numPages} ${numPages === 1 ? 'page' : 'pages'}). Please check your page range in options.`,
+      });
+    }
+
     for (let i = 0; i < pagesToRender.length; i++) {
       if (cancellationToken?.isCancelled) {
         throw new OperationCancelledError('PDF to Image');

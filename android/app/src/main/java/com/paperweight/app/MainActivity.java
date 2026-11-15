@@ -27,6 +27,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 import androidx.core.graphics.Insets;
+import androidx.core.splashscreen.SplashScreen;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -137,13 +138,14 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void updateWindowThemeBackground(boolean isDark) {
-        int themeBgColor = isDark ? Color.parseColor("#141312") : Color.parseColor("#fbfaf8");
+        int themeBgColor = isDark ? Color.parseColor("#151517") : Color.parseColor("#E9E8E4");
         getWindow().setBackgroundDrawable(new ColorDrawable(themeBgColor));
         getWindow().getDecorView().setBackgroundColor(themeBgColor);
     }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        SplashScreen.installSplashScreen(this);
         super.onCreate(savedInstanceState);
 
         // Process incoming shared images on cold start
@@ -279,14 +281,17 @@ public class MainActivity extends BridgeActivity {
                 public boolean saveFile(String base64Data, String filename, String mimeType) {
                     try {
                         byte[] bytes = Base64.decode(base64Data, Base64.DEFAULT);
+                        boolean isImage = (mimeType != null && mimeType.startsWith("image/")) ||
+                                          filename.toLowerCase().matches(".*\\.(jpe?g|png|webp|avif|bmp|gif|tiff?)");
 
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                             ContentValues values = new ContentValues();
                             values.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
-                            values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType != null && !mimeType.isEmpty() ? mimeType : "application/octet-stream");
-                            values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                            values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType != null && !mimeType.isEmpty() ? mimeType : (isImage ? "image/png" : "application/octet-stream"));
+                            values.put(MediaStore.MediaColumns.RELATIVE_PATH, isImage ? (Environment.DIRECTORY_PICTURES + "/Paperweight") : Environment.DIRECTORY_DOWNLOADS);
 
-                            Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                            Uri targetCollection = isImage ? MediaStore.Images.Media.EXTERNAL_CONTENT_URI : MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+                            Uri uri = getContentResolver().insert(targetCollection, values);
                             if (uri != null) {
                                 try (OutputStream os = getContentResolver().openOutputStream(uri)) {
                                     if (os != null) {
@@ -296,17 +301,24 @@ public class MainActivity extends BridgeActivity {
                                 }
                             }
                         } else {
-                            File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                            if (!downloadsDir.exists()) downloadsDir.mkdirs();
-                            File file = new File(downloadsDir, filename);
+                            File baseDir = isImage ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES) : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                            File targetDir = isImage ? new File(baseDir, "Paperweight") : baseDir;
+                            if (!targetDir.exists()) targetDir.mkdirs();
+                            File file = new File(targetDir, filename);
                             try (FileOutputStream fos = new FileOutputStream(file)) {
                                 fos.write(bytes);
                                 fos.flush();
                             }
+                            android.media.MediaScannerConnection.scanFile(
+                                MainActivity.this,
+                                new String[] { file.getAbsolutePath() },
+                                new String[] { mimeType },
+                                null
+                            );
                         }
 
                         runOnUiThread(() -> {
-                            Toast.makeText(MainActivity.this, "Saved " + filename + " to Downloads", Toast.LENGTH_LONG).show();
+                            Toast.makeText(MainActivity.this, isImage ? ("Saved " + filename + " to Gallery") : ("Saved " + filename + " to Downloads"), Toast.LENGTH_LONG).show();
                         });
                         return true;
                     } catch (Exception e) {
@@ -324,6 +336,7 @@ public class MainActivity extends BridgeActivity {
                         return false;
                     }
                     int savedCount = 0;
+                    boolean anyImage = false;
                     for (int i = 0; i < base64DataList.length; i++) {
                         try {
                             String base64Data = base64DataList[i];
@@ -331,15 +344,20 @@ public class MainActivity extends BridgeActivity {
                             String mimeType = (mimeTypes != null && i < mimeTypes.length && mimeTypes[i] != null && !mimeTypes[i].isEmpty())
                                     ? mimeTypes[i] : "application/octet-stream";
 
+                            boolean isImage = (mimeType != null && mimeType.startsWith("image/")) ||
+                                              filename.toLowerCase().matches(".*\\.(jpe?g|png|webp|avif|bmp|gif|tiff?)");
+                            if (isImage) anyImage = true;
+
                             byte[] bytes = Base64.decode(base64Data, Base64.DEFAULT);
 
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                 ContentValues values = new ContentValues();
                                 values.put(MediaStore.MediaColumns.DISPLAY_NAME, filename);
                                 values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
-                                values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                                values.put(MediaStore.MediaColumns.RELATIVE_PATH, isImage ? (Environment.DIRECTORY_PICTURES + "/Paperweight") : Environment.DIRECTORY_DOWNLOADS);
 
-                                Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                                Uri targetCollection = isImage ? MediaStore.Images.Media.EXTERNAL_CONTENT_URI : MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+                                Uri uri = getContentResolver().insert(targetCollection, values);
                                 if (uri != null) {
                                     try (OutputStream os = getContentResolver().openOutputStream(uri)) {
                                         if (os != null) {
@@ -350,14 +368,21 @@ public class MainActivity extends BridgeActivity {
                                     }
                                 }
                             } else {
-                                File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                                if (!downloadsDir.exists()) downloadsDir.mkdirs();
-                                File file = new File(downloadsDir, filename);
+                                File baseDir = isImage ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES) : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                                File targetDir = isImage ? new File(baseDir, "Paperweight") : baseDir;
+                                if (!targetDir.exists()) targetDir.mkdirs();
+                                File file = new File(targetDir, filename);
                                 try (FileOutputStream fos = new FileOutputStream(file)) {
                                     fos.write(bytes);
                                     fos.flush();
                                     savedCount++;
                                 }
+                                android.media.MediaScannerConnection.scanFile(
+                                    MainActivity.this,
+                                    new String[] { file.getAbsolutePath() },
+                                    new String[] { mimeType },
+                                    null
+                                );
                             }
                         } catch (Exception e) {
                             e.printStackTrace();
@@ -365,9 +390,11 @@ public class MainActivity extends BridgeActivity {
                     }
 
                     final int finalCount = savedCount;
+                    final boolean isImg = anyImage;
                     runOnUiThread(() -> {
                         if (finalCount > 0) {
-                            Toast.makeText(MainActivity.this, "Saved " + finalCount + " files to Downloads", Toast.LENGTH_LONG).show();
+                            String targetName = isImg ? "Gallery" : "Downloads";
+                            Toast.makeText(MainActivity.this, "Saved " + finalCount + " files to " + targetName, Toast.LENGTH_LONG).show();
                         } else {
                             Toast.makeText(MainActivity.this, "Error saving files", Toast.LENGTH_SHORT).show();
                         }
@@ -403,6 +430,58 @@ public class MainActivity extends BridgeActivity {
                         shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
                         Intent chooser = Intent.createChooser(shareIntent, "Share Document");
+                        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(chooser);
+                        return true;
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        runOnUiThread(() -> {
+                            Toast.makeText(MainActivity.this, "Share error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                        });
+                        return false;
+                    }
+                }
+
+                @JavascriptInterface
+                public boolean shareFiles(String[] base64DataList, String[] filenames, String[] mimeTypes, String caption) {
+                    try {
+                        if (base64DataList == null || filenames == null || base64DataList.length == 0) {
+                            return false;
+                        }
+                        File cacheDir = new File(getCacheDir(), "shared_docs");
+                        if (!cacheDir.exists()) cacheDir.mkdirs();
+
+                        ArrayList<Uri> fileUris = new ArrayList<>();
+                        String commonMimeType = "image/*";
+                        if (mimeTypes != null && mimeTypes.length > 0 && mimeTypes[0] != null && !mimeTypes[0].isEmpty()) {
+                            commonMimeType = mimeTypes[0];
+                        }
+
+                        for (int i = 0; i < base64DataList.length; i++) {
+                            byte[] bytes = Base64.decode(base64DataList[i], Base64.DEFAULT);
+                            String filename = (i < filenames.length) ? filenames[i] : ("image_" + (i + 1) + ".png");
+                            File shareFile = new File(cacheDir, filename);
+                            try (FileOutputStream fos = new FileOutputStream(shareFile)) {
+                                fos.write(bytes);
+                                fos.flush();
+                            }
+                            Uri fileUri = FileProvider.getUriForFile(
+                                MainActivity.this,
+                                getPackageName() + ".fileprovider",
+                                shareFile
+                            );
+                            fileUris.add(fileUri);
+                        }
+
+                        Intent shareIntent = new Intent(Intent.ACTION_SEND_MULTIPLE);
+                        shareIntent.setType(commonMimeType);
+                        shareIntent.putParcelableArrayListExtra(Intent.EXTRA_STREAM, fileUris);
+                        if (caption != null && !caption.isEmpty()) {
+                            shareIntent.putExtra(Intent.EXTRA_TEXT, caption);
+                        }
+                        shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+                        Intent chooser = Intent.createChooser(shareIntent, "Share Images");
                         chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                         startActivity(chooser);
                         return true;

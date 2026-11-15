@@ -10,6 +10,7 @@ declare global {
       saveFile: (base64Data: string, filename: string, mimeType: string) => boolean;
       saveFiles?: (base64DataList: string[], filenames: string[], mimeTypes: string[]) => boolean;
       shareFile: (base64Data: string, filename: string, mimeType: string, caption: string) => boolean;
+      shareFiles?: (base64DataList: string[], filenames: string[], mimeTypes: string[], caption: string) => boolean;
     };
     Capacitor?: {
       isNativePlatform?: () => boolean;
@@ -178,4 +179,61 @@ export async function shareBlob(blob: Blob, filename: string, caption = SHARE_CA
 
   // Final fallback: save to device
   await downloadBlob(blob, filename);
+}
+
+/**
+ * Shares multiple files directly (as image/document files, NEVER as a zip archive).
+ * On Android, triggers AndroidBridge.shareFiles (ACTION_SEND_MULTIPLE).
+ * On Web/Desktop, uses navigator.share with multiple files.
+ */
+export async function shareMultipleBlobs(
+  items: Array<{ blob: Blob; name: string }>,
+  caption = SHARE_CAPTION
+): Promise<void> {
+  if (!items || items.length === 0) return;
+  if (items.length === 1) {
+    return shareBlob(items[0].blob, items[0].name, caption);
+  }
+
+  // 1. Android Native Bridge ACTION_SEND_MULTIPLE
+  if (
+    typeof window !== 'undefined' &&
+    window.AndroidBridge &&
+    typeof window.AndroidBridge.shareFiles === 'function'
+  ) {
+    try {
+      const base64List: string[] = [];
+      const filenames: string[] = [];
+      const mimeTypes: string[] = [];
+      for (const item of items) {
+        base64List.push(await blobToBase64(item.blob));
+        filenames.push(item.name);
+        mimeTypes.push(item.blob.type || 'image/png');
+      }
+      const success = window.AndroidBridge.shareFiles(base64List, filenames, mimeTypes, caption);
+      if (success) return;
+    } catch (e) {
+      console.warn('Native AndroidBridge shareFiles failed, trying Web Share API:', e);
+    }
+  }
+
+  // 2. Web Share API with multiple files
+  if (typeof navigator !== 'undefined' && navigator.canShare) {
+    const files = items.map((it) => new File([it.blob], it.name, { type: it.blob.type || 'image/png' }));
+    if (navigator.canShare({ files })) {
+      try {
+        await navigator.share({
+          title: `${items.length} files`,
+          text: caption,
+          files,
+        });
+        return;
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+      }
+    }
+  }
+
+  // Fallback: save all to device
+  await saveMultipleBlobs(items);
 }

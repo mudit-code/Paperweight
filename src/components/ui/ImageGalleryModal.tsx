@@ -1,28 +1,22 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  X,
   ChevronLeft,
   ChevronRight,
-  ZoomIn,
-  ZoomOut,
   RotateCw,
-  Maximize2,
   Minimize2,
-  Grid,
-  FileImage,
   Download,
   Plus,
   Trash2,
   Crop,
+  ArrowLeft,
   ArrowRightLeft,
   FlipHorizontal,
   Copy,
   Maximize,
-  Image as ImageIcon,
   Check,
 } from 'lucide-react';
 import { formatBytes } from '../../core/files/validation';
-import { downloadBlob } from '../../core/processors/download';
+import { downloadBlob, isMobileApp } from '../../core/processors/download';
 import { registerBackHandler } from '../../core/navigation/backButton';
 
 export interface GalleryItem {
@@ -54,6 +48,29 @@ interface ContextMenuState {
   item: GalleryItem | null;
 }
 
+const getAspectRatioString = (width?: number, height?: number): string => {
+  if (!width || !height || width <= 0 || height <= 0) return '';
+  const gcd = (a: number, b: number): number => {
+    let x = Math.round(Math.abs(a));
+    let y = Math.round(Math.abs(b));
+    while (y) {
+      const t = y;
+      y = x % y;
+      x = t;
+    }
+    return x;
+  };
+  const divisor = gcd(width, height);
+  const wTerm = Math.round(width / divisor);
+  const hTerm = Math.round(height / divisor);
+
+  if (wTerm <= 32 && hTerm <= 32) {
+    return `${wTerm}:${hTerm}`;
+  }
+  const ratio = (width / height).toFixed(2).replace(/\.00$/, '');
+  return `${ratio}:1`;
+};
+
 export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
   isOpen,
   onClose,
@@ -68,7 +85,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
   const [items, setItems] = useState<GalleryItem[]>(initialImages);
   const [currentIndex, setCurrentIndex] = useState<number>(initialIndex);
   const [viewMode, setViewMode] = useState<'stage' | 'grid'>('stage');
-  const [showFilmstrip, setShowFilmstrip] = useState<boolean>(true);
+  const isMobile = isMobileApp();
 
   // Stage transform & touch swipe carousel state
   const [scale, setScale] = useState<number>(1.0);
@@ -83,12 +100,14 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
   const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const swipeCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSwipeTargetRef = useRef<number | null>(null);
+  const isMouseSwipingRef = useRef(false);
+  const mouseStartXRef = useRef(0);
+  const mouseLastXRef = useRef(0);
+  const mouseLastTimeRef = useRef(0);
+  const mouseVelocityXRef = useRef(0);
 
   // Dimensions cache
   const [dimensionsMap, setDimensionsMap] = useState<Record<string, { width: number; height: number }>>({});
-
-  // Fullscreen state
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
@@ -137,7 +156,6 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
 
   // Hidden file input for adding more images
   const addFileInputRef = useRef<HTMLInputElement>(null);
-  const filmstripRef = useRef<HTMLDivElement>(null);
   const stageContainerRef = useRef<HTMLDivElement>(null);
 
   // Keep items in sync with prop updates
@@ -160,7 +178,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
     resetTransform();
   }, [currentIndex, resetTransform]);
 
-  // Smooth touch swipe carousel + pinch-to-zoom + double-tap + zoomed pan for Android/Mobile
+  // Smooth touch swipe carousel + multi-touch pinch-to-zoom + double-tap & drag + zoomed pan for Android/Mobile
   useEffect(() => {
     if (!isOpen || viewMode !== 'stage') return;
     const el = stageContainerRef.current;
@@ -173,11 +191,27 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
     let lastX = 0;
     let lastTime = 0;
     let velocityX = 0;
+
+    // Multi-touch Pinch state (with focal point tracking)
     let pinchStartDist = 0;
     let pinchStartScale = 1.0;
+    let pinchCenterX = 0;
+    let pinchCenterY = 0;
+    let pinchInitialFocalX = 0;
+    let pinchInitialFocalY = 0;
+    let pinchStartPan = { x: 0, y: 0 };
+
+    // Double-tap & One-handed drag zoom state
     let lastTapTime = 0;
     let lastTapPos = { x: 0, y: 0 };
     let movedSinceStart = false;
+    let isDoubleTapCandidate = false;
+    let isDoubleTapDragging = false;
+    let doubleTapStartY = 0;
+    let doubleTapStartScale = 1.0;
+    let doubleTapFocalX = 0;
+    let doubleTapFocalY = 0;
+    let doubleTapStartPan = { x: 0, y: 0 };
 
     const flushPendingSwipe = () => {
       if (swipeCommitTimerRef.current !== null) {
@@ -205,10 +239,18 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
       if (e.touches.length >= 2) {
         if (e.cancelable) e.preventDefault();
         gestureLock = 'pinch';
+        isDoubleTapCandidate = false;
+        isDoubleTapDragging = false;
         const t1 = e.touches[0];
         const t2 = e.touches[1];
         pinchStartDist = Math.max(10, Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY));
         pinchStartScale = scaleRef.current;
+        const rect = el.getBoundingClientRect();
+        pinchCenterX = rect.width / 2;
+        pinchCenterY = rect.height / 2;
+        pinchInitialFocalX = (t1.clientX + t2.clientX) / 2 - rect.left - pinchCenterX;
+        pinchInitialFocalY = (t1.clientY + t2.clientY) / 2 - rect.top - pinchCenterY;
+        pinchStartPan = { ...panRef.current };
         setSwipeOffsetX(0);
         return;
       }
@@ -221,7 +263,29 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
         lastTime = performance.now();
         velocityX = 0;
         startPan = { ...panRef.current };
-        gestureLock = scaleRef.current > 1.05 ? 'pan' : 'none';
+
+        const now = performance.now();
+        const distFromLast = Math.hypot(t.clientX - lastTapPos.x, t.clientY - lastTapPos.y);
+
+        if (now - lastTapTime < 350 && distFromLast < 45) {
+          if (e.cancelable) e.preventDefault();
+          isDoubleTapCandidate = true;
+          isDoubleTapDragging = false;
+          doubleTapStartY = t.clientY;
+          doubleTapStartScale = scaleRef.current;
+          const rect = el.getBoundingClientRect();
+          doubleTapFocalX = t.clientX - rect.left - rect.width / 2;
+          doubleTapFocalY = t.clientY - rect.top - rect.height / 2;
+          doubleTapStartPan = { ...panRef.current };
+          lastTapTime = 0;
+          gestureLock = 'none';
+        } else {
+          lastTapTime = now;
+          lastTapPos = { x: t.clientX, y: t.clientY };
+          isDoubleTapCandidate = false;
+          isDoubleTapDragging = false;
+          gestureLock = scaleRef.current > 1.05 ? 'pan' : 'none';
+        }
       }
     };
 
@@ -229,14 +293,26 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
       if (e.touches.length >= 2) {
         if (e.cancelable) e.preventDefault();
         gestureLock = 'pinch';
+        isDoubleTapCandidate = false;
+        isDoubleTapDragging = false;
         const t1 = e.touches[0];
         const t2 = e.touches[1];
         const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-        const nextScale = Math.max(0.5, Math.min(6.0, Number((pinchStartScale * (dist / pinchStartDist)).toFixed(3))));
-        setScale(nextScale);
+        const scaleRatio = dist / pinchStartDist;
+        const nextScale = Math.max(1.0, Math.min(8.0, Number((pinchStartScale * scaleRatio).toFixed(3))));
         if (nextScale <= 1.05) {
+          setScale(1.0);
           setPan({ x: 0, y: 0 });
+          return;
         }
+        const rect = el.getBoundingClientRect();
+        const curScreenFocalX = (t1.clientX + t2.clientX) / 2 - rect.left - pinchCenterX;
+        const curScreenFocalY = (t1.clientY + t2.clientY) / 2 - rect.top - pinchCenterY;
+        const panDeltaRatio = nextScale / pinchStartScale;
+        const nextPanX = curScreenFocalX - (pinchInitialFocalX - pinchStartPan.x) * panDeltaRatio;
+        const nextPanY = curScreenFocalY - (pinchInitialFocalY - pinchStartPan.y) * panDeltaRatio;
+        setScale(nextScale);
+        setPan({ x: nextPanX, y: nextPanY });
         return;
       }
 
@@ -249,12 +325,40 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
         movedSinceStart = true;
       }
 
+      // Check double-tap drag (one-handed zoom)
+      if (isDoubleTapCandidate) {
+        const deltaY = t.clientY - doubleTapStartY;
+        if (!isDoubleTapDragging && Math.abs(deltaY) > 6) {
+          isDoubleTapDragging = true;
+        }
+        if (isDoubleTapDragging) {
+          if (e.cancelable) e.preventDefault();
+          const scaleFactor = Math.pow(2, deltaY / 80);
+          const rawScale = doubleTapStartScale * scaleFactor;
+          const clampedScale = Math.max(0.5, Math.min(8.0, Number(rawScale.toFixed(3))));
+          const panDeltaRatio = clampedScale / doubleTapStartScale;
+          const nextPanX = doubleTapFocalX - (doubleTapFocalX - doubleTapStartPan.x) * panDeltaRatio;
+          const nextPanY = doubleTapFocalY - (doubleTapFocalY - doubleTapStartPan.y) * panDeltaRatio;
+          setScale(clampedScale);
+          setPan({ x: nextPanX, y: nextPanY });
+          return;
+        }
+      }
+
+      if (!isDoubleTapCandidate && lastTapTime > 0 && Math.hypot(dx, dy) > 10) {
+        lastTapTime = 0;
+      }
+
       if (gestureLock === 'pan' || scaleRef.current > 1.05) {
         if (e.cancelable) e.preventDefault();
         gestureLock = 'pan';
+        const rect = el.getBoundingClientRect();
+        const curScale = scaleRef.current;
+        const maxPanX = Math.max(0, (rect.width * curScale - rect.width) / 2 + 100);
+        const maxPanY = Math.max(0, (rect.height * curScale - rect.height) / 2 + 100);
         setPan({
-          x: startPan.x + dx,
-          y: startPan.y + dy,
+          x: Math.max(-maxPanX, Math.min(maxPanX, startPan.x + dx)),
+          y: Math.max(-maxPanY, Math.min(maxPanY, startPan.y + dy)),
         });
         return;
       }
@@ -296,17 +400,71 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
 
       setIsTouchActive(false);
 
+      if (gestureLock === 'pinch') {
+        gestureLock = 'none';
+        if (scaleRef.current <= 1.05) {
+          setScale(1.0);
+          setPan({ x: 0, y: 0 });
+        }
+        return;
+      }
+
+      if (isDoubleTapCandidate) {
+        isDoubleTapCandidate = false;
+        if (isDoubleTapDragging) {
+          isDoubleTapDragging = false;
+          if (scaleRef.current <= 1.05) {
+            setScale(1.0);
+            setPan({ x: 0, y: 0 });
+          }
+          return;
+        }
+
+        // Quick Double-Tap
+        if (scaleRef.current > 1.05) {
+          setScale(1.0);
+          setPan({ x: 0, y: 0 });
+        } else {
+          const targetScale = 2.5;
+          const rect = el.getBoundingClientRect();
+          const maxPanX = Math.max(0, (rect.width * targetScale - rect.width) / 2);
+          const maxPanY = Math.max(0, (rect.height * targetScale - rect.height) / 2);
+          const targetPanX = Math.max(-maxPanX, Math.min(maxPanX, -doubleTapFocalX * (targetScale - 1)));
+          const targetPanY = Math.max(-maxPanY, Math.min(maxPanY, -doubleTapFocalY * (targetScale - 1)));
+          setScale(targetScale);
+          setPan({ x: targetPanX, y: targetPanY });
+        }
+        return;
+      }
+
       if (gestureLock === 'swipe') {
         gestureLock = 'none';
         const curIdx = currentIndexRef.current;
         const len = itemsLengthRef.current;
         const offset = swipeOffsetXRef.current;
         const stageW = el.clientWidth || window.innerWidth || 360;
-        const stride = stageW + 16;
-        const threshold = Math.min(95, stageW * 0.2);
+        const stride = stageW + 24;
 
-        const goNext = curIdx < len - 1 && (offset < -threshold || velocityX < -0.32);
-        const goPrev = curIdx > 0 && (offset > threshold || velocityX > 0.32);
+        // Velocity & displacement evaluation
+        const isFlickLeft = velocityX < -0.25;
+        const isFlickRight = velocityX > 0.25;
+        const isPastMidpointLeft = offset < -stageW * 0.40;
+        const isPastMidpointRight = offset > stageW * 0.40;
+        const isCounterFlickCancel = (offset < 0 && isFlickRight) || (offset > 0 && isFlickLeft);
+
+        const canGoNext = curIdx < len - 1;
+        const canGoPrev = curIdx > 0;
+
+        let goNext = false;
+        let goPrev = false;
+
+        if (!isCounterFlickCancel) {
+          if (canGoNext && (isFlickLeft || isPastMidpointLeft)) {
+            goNext = true;
+          } else if (canGoPrev && (isFlickRight || isPastMidpointRight)) {
+            goPrev = true;
+          }
+        }
 
         if (goNext) {
           const targetIdx = curIdx + 1;
@@ -319,7 +477,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
             setSwipeTransitioning(false);
             setSwipeOffsetX(0);
             setCurrentIndex(targetIdx);
-          }, 220);
+          }, 260);
         } else if (goPrev) {
           const targetIdx = curIdx - 1;
           pendingSwipeTargetRef.current = targetIdx;
@@ -331,7 +489,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
             setSwipeTransitioning(false);
             setSwipeOffsetX(0);
             setCurrentIndex(targetIdx);
-          }, 220);
+          }, 260);
         } else {
           pendingSwipeTargetRef.current = null;
           setSwipeTransitioning(true);
@@ -339,27 +497,9 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
           swipeCommitTimerRef.current = setTimeout(() => {
             swipeCommitTimerRef.current = null;
             setSwipeTransitioning(false);
-          }, 200);
+          }, 240);
         }
         return;
-      }
-
-      // Single-finger quick double-tap to zoom / fit
-      if (!movedSinceStart && gestureLock !== 'pinch') {
-        const now = performance.now();
-        const t = e.changedTouches[0];
-        if (t && now - lastTapTime < 300 && Math.hypot(t.clientX - lastTapPos.x, t.clientY - lastTapPos.y) < 40) {
-          lastTapTime = 0;
-          if (scaleRef.current > 1.05) {
-            setScale(1.0);
-            setPan({ x: 0, y: 0 });
-          } else {
-            setScale(2.5);
-          }
-        } else if (t) {
-          lastTapTime = now;
-          lastTapPos = { x: t.clientX, y: t.clientY };
-        }
       }
 
       gestureLock = 'none';
@@ -395,16 +535,6 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
     }
   };
 
-  // Scroll active thumbnail into view in filmstrip
-  useEffect(() => {
-    if (viewMode === 'stage' && filmstripRef.current) {
-      const activeEl = filmstripRef.current.querySelector(`[data-index="${currentIndex}"]`) as HTMLElement;
-      if (activeEl) {
-        activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-      }
-    }
-  }, [currentIndex, viewMode, showFilmstrip]);
-
   // Navigation handlers
   const handlePrev = useCallback(() => {
     if (items.length <= 1) return;
@@ -416,9 +546,15 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
     setCurrentIndex((prev) => (prev < items.length - 1 ? prev + 1 : 0));
   }, [items.length]);
 
-  // Zoom handlers (clamped 0.25x to 8.0x)
+  // Zoom handlers (clamped 1.0x to 8.0x: never zoom out smaller than original fit)
   const handleZoomIn = () => setScale((s) => Math.min(Number((s * 1.25).toFixed(2)), 8.0));
-  const handleZoomOut = () => setScale((s) => Math.max(Number((s / 1.25).toFixed(2)), 0.25));
+  const handleZoomOut = () => {
+    setScale((s) => {
+      const next = Math.max(Number((s / 1.25).toFixed(2)), 1.0);
+      if (next <= 1.05) setPan({ x: 0, y: 0 });
+      return next;
+    });
+  };
   const handleFit = () => resetTransform();
   const handleActualSize = () => {
     setScale(1.0);
@@ -429,46 +565,172 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
   const handleRotate = () => setRotation((r) => (r + 90) % 360);
   const handleFlipH = () => setIsFlippedH((f) => !f);
 
-  // Wheel zoom
+  // Desktop Wheel zoom with focal point tracking (never zooms out smaller than 1.0)
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    if (e.deltaY < 0) {
-      setScale((s) => Math.min(Number((s * 1.15).toFixed(2)), 8.0));
+    const el = stageContainerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    const fx = e.clientX - rect.left - centerX;
+    const fy = e.clientY - rect.top - centerY;
+    const factor = e.deltaY < 0 ? 1.2 : 0.833;
+    const curScale = scale;
+    const nextScale = Math.max(1.0, Math.min(8.0, Number((curScale * factor).toFixed(2))));
+    if (nextScale <= 1.05) {
+      setScale(1.0);
+      setPan({ x: 0, y: 0 });
     } else {
-      setScale((s) => Math.max(Number((s / 1.15).toFixed(2)), 0.25));
+      const ratio = nextScale / curScale;
+      const nextPanX = fx - (fx - pan.x) * ratio;
+      const nextPanY = fy - (fy - pan.y) * ratio;
+      setScale(nextScale);
+      setPan({ x: nextPanX, y: nextPanY });
     }
   };
 
-  // Drag to pan when zoomed
+  // Drag to pan when zoomed, or slide carousel when at fit scale
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return; // Only primary mouse button
-    if (scale <= 1.0) return;
-    e.preventDefault();
-    setIsDragging(true);
-    dragStartRef.current = { x: e.clientX, y: e.clientY };
-    panStartRef.current = { ...pan };
+    if (scale > 1.05) {
+      e.preventDefault();
+      setIsDragging(true);
+      dragStartRef.current = { x: e.clientX, y: e.clientY };
+      panStartRef.current = { ...pan };
+    } else if (items.length > 1) {
+      e.preventDefault();
+      isMouseSwipingRef.current = true;
+      mouseStartXRef.current = e.clientX;
+      mouseLastXRef.current = e.clientX;
+      mouseLastTimeRef.current = performance.now();
+      mouseVelocityXRef.current = 0;
+      setIsTouchActive(true);
+    }
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    const dx = e.clientX - dragStartRef.current.x;
-    const dy = e.clientY - dragStartRef.current.y;
-    setPan({
-      x: panStartRef.current.x + dx,
-      y: panStartRef.current.y + dy,
-    });
+    if (isDragging && scale > 1.05) {
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      const el = stageContainerRef.current;
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const maxPanX = Math.max(0, (rect.width * scale - rect.width) / 2 + 100);
+        const maxPanY = Math.max(0, (rect.height * scale - rect.height) / 2 + 100);
+        setPan({
+          x: Math.max(-maxPanX, Math.min(maxPanX, panStartRef.current.x + dx)),
+          y: Math.max(-maxPanY, Math.min(maxPanY, panStartRef.current.y + dy)),
+        });
+      } else {
+        setPan({
+          x: panStartRef.current.x + dx,
+          y: panStartRef.current.y + dy,
+        });
+      }
+    } else if (isMouseSwipingRef.current && scale <= 1.05) {
+      const now = performance.now();
+      const dt = Math.max(1, now - mouseLastTimeRef.current);
+      const instVx = (e.clientX - mouseLastXRef.current) / dt;
+      mouseVelocityXRef.current = mouseVelocityXRef.current * 0.4 + instVx * 0.6;
+      mouseLastXRef.current = e.clientX;
+      mouseLastTimeRef.current = now;
+
+      const dx = e.clientX - mouseStartXRef.current;
+      const curIdx = currentIndex;
+      const len = items.length;
+      const isAtStartEdge = curIdx === 0 && dx > 0;
+      const isAtEndEdge = curIdx >= len - 1 && dx < 0;
+      const offset = isAtStartEdge || isAtEndEdge ? dx * 0.28 : dx;
+      setSwipeOffsetX(offset);
+    }
   };
 
   const handleMouseUp = () => {
-    setIsDragging(false);
+    if (isDragging) {
+      setIsDragging(false);
+    }
+    if (isMouseSwipingRef.current) {
+      isMouseSwipingRef.current = false;
+      setIsTouchActive(false);
+
+      const curIdx = currentIndex;
+      const len = items.length;
+      const offset = swipeOffsetX;
+      const stageW = stageContainerRef.current?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 360);
+      const stride = stageW + 24;
+      const vx = mouseVelocityXRef.current;
+
+      const isFlickLeft = vx < -0.25;
+      const isFlickRight = vx > 0.25;
+      const isPastMidpointLeft = offset < -stageW * 0.40;
+      const isPastMidpointRight = offset > stageW * 0.40;
+      const isCounterFlickCancel = (offset < 0 && isFlickRight) || (offset > 0 && isFlickLeft);
+
+      const canGoNext = curIdx < len - 1;
+      const canGoPrev = curIdx > 0;
+
+      let goNext = false;
+      let goPrev = false;
+
+      if (!isCounterFlickCancel) {
+        if (canGoNext && (isFlickLeft || isPastMidpointLeft)) {
+          goNext = true;
+        } else if (canGoPrev && (isFlickRight || isPastMidpointRight)) {
+          goPrev = true;
+        }
+      }
+
+      if (goNext) {
+        const targetIdx = curIdx + 1;
+        setSwipeTransitioning(true);
+        setSwipeOffsetX(-stride);
+        setTimeout(() => {
+          setSwipeTransitioning(false);
+          setSwipeOffsetX(0);
+          setCurrentIndex(targetIdx);
+        }, 260);
+      } else if (goPrev) {
+        const targetIdx = curIdx - 1;
+        setSwipeTransitioning(true);
+        setSwipeOffsetX(stride);
+        setTimeout(() => {
+          setSwipeTransitioning(false);
+          setSwipeOffsetX(0);
+          setCurrentIndex(targetIdx);
+        }, 260);
+      } else {
+        setSwipeTransitioning(true);
+        setSwipeOffsetX(0);
+        setTimeout(() => {
+          setSwipeTransitioning(false);
+        }, 240);
+      }
+    }
   };
 
-  // Double click toggles between fit and 2x zoom
-  const handleDoubleClick = () => {
+  // Double click toggles between fit and 2.5x focal zoom
+  const handleDoubleClick = (e: React.MouseEvent) => {
     if (scale > 1.05) {
       resetTransform();
     } else {
-      setScale(2.0);
+      const el = stageContainerRef.current;
+      if (!el) {
+        setScale(2.5);
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      const fx = e.clientX - rect.left - centerX;
+      const fy = e.clientY - rect.top - centerY;
+      const targetScale = 2.5;
+      const maxPanX = Math.max(0, (rect.width * targetScale - rect.width) / 2);
+      const maxPanY = Math.max(0, (rect.height * targetScale - rect.height) / 2);
+      const targetPanX = Math.max(-maxPanX, Math.min(maxPanX, -fx * (targetScale - 1)));
+      const targetPanY = Math.max(-maxPanY, Math.min(maxPanY, -fy * (targetScale - 1)));
+      setScale(targetScale);
+      setPan({ x: targetPanX, y: targetPanY });
     }
   };
 
@@ -476,20 +738,10 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(() => {});
-      setIsFullscreen(true);
     } else {
       document.exitFullscreen().catch(() => {});
-      setIsFullscreen(false);
     }
   };
-
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
-    };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, []);
 
   // Download current image
   const handleDownloadCurrent = async (targetItem: GalleryItem | null = currentItem) => {
@@ -690,12 +942,13 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
   const currentFormat = currentItem?.type
     ? currentItem.type.replace('image/', '').toUpperCase()
     : currentItem?.name.split('.').pop()?.toUpperCase() || 'IMAGE';
+  const aspectRatioStr = currentDims ? getAspectRatioString(currentDims.width, currentDims.height) : '';
 
   return (
     <div
       role="dialog"
       aria-label="Image Gallery Viewer"
-      className="fixed inset-0 z-50 flex flex-col select-none overflow-hidden animate-in fade-in duration-150 bg-surface-bg text-text-main"
+      className="fixed inset-0 z-[100] flex flex-col select-none overflow-hidden animate-in fade-in duration-150 bg-surface-bg text-text-main"
     >
       {/* Hidden File Input for Adding Images */}
       <input
@@ -710,173 +963,68 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
       {/* ─────────────────────────────────────────────────────────────
           TOP TOOLBAR (Windows 11 Photos Style with Android Safe-Area Clearance)
       ───────────────────────────────────────────────────────────── */}
-      <div className="shrink-0 w-full bg-surface-panel border-b border-surface-border text-text-main z-30 select-none shadow-xs pt-[var(--safe-area-top)] pl-[var(--safe-area-left)] pr-[var(--safe-area-right)] transition-[padding] duration-150">
-        <header className="h-12 sm:h-13 px-3 sm:px-4 flex items-center justify-between">
-        {/* Left Side: Actions (Compress, Resize, Rotate, Delete, Info) */}
-        <div className="flex items-center gap-1 sm:gap-1.5 min-w-0">
-          {/* Compress with Paperweight (Replaces Edit icon) */}
-          {currentItem && onCompressImage && (
+      <div className="shrink-0 w-full bg-surface-panel border-b border-surface-border text-text-main z-30 select-none shadow-xs pt-[var(--safe-area-top)] pl-[var(--safe-area-left)] pr-[var(--safe-area-right)] transition-[padding] duration-150 relative">
+        <header className="h-14 px-3 sm:px-6 flex items-center justify-between gap-2 relative">
+          {/* Left Action: Back Button */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 z-10">
             <button
               type="button"
-              onClick={() => {
-                if (currentItem.blob) {
-                  onCompressImage(currentItem.blob, currentItem.name);
-                }
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-surface-panel border border-surface-border text-text-main hover:border-accent hover:text-accent hover:bg-surface-subtle transition-all cursor-pointer shadow-2xs"
-              title="Compress image with Paperweight"
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 h-9 sm:h-[38px] px-3 rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle hover:border-surface-border-focus text-xs font-semibold text-text-main transition-colors duration-fast ease-out cursor-pointer shrink-0"
+              title="Back"
+              aria-label="Back"
             >
-              <Minimize2 className="w-3.5 h-3.5 text-accent" />
-              <span className="hidden sm:inline font-semibold">Compress</span>
+              <ArrowLeft className="w-4 h-4 text-text-muted shrink-0" />
+              <span>Back</span>
             </button>
+          </div>
+
+          {/* Center: Image Name (DESKTOP ONLY - on mobile APK, moved to bottom status bar) */}
+          {!isMobile && (
+            <div className="absolute inset-x-0 inset-y-0 flex items-center justify-center pointer-events-none px-28">
+              <span
+                className="text-sm sm:text-base font-semibold text-text-main truncate text-center"
+                title={currentItem?.name || 'Image'}
+              >
+                {currentItem?.name || 'Image'}
+              </span>
+            </div>
           )}
 
-          {/* Resize with Paperweight (Replaces Edit icon) */}
-          {currentItem && onResizeImage && (
-            <button
-              type="button"
-              onClick={() => {
-                if (currentItem.blob) {
-                  onResizeImage(currentItem.blob, currentItem.name);
-                }
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-surface-panel border border-surface-border text-text-main hover:border-accent hover:text-accent hover:bg-surface-subtle transition-all cursor-pointer shadow-2xs"
-              title="Resize image with Paperweight"
-            >
-              <Crop className="w-3.5 h-3.5 text-accent" />
-              <span className="hidden sm:inline font-semibold">Resize</span>
-            </button>
-          )}
+          {/* Right Actions: Compress and Resize buttons together in the right-most side */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 z-10 pr-1">
+            {currentItem && onCompressImage && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (currentItem.blob) {
+                    onCompressImage(currentItem.blob, currentItem.name);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 h-9 sm:h-[38px] px-3 rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle hover:border-accent hover:text-accent text-text-main text-xs font-semibold transition-colors duration-fast ease-out cursor-pointer shrink-0 shadow-2xs"
+                title="Compress image"
+              >
+                <Minimize2 className="w-3.5 h-3.5 text-accent shrink-0" />
+                <span>Compress</span>
+              </button>
+            )}
 
-          <div className="w-px h-4.5 bg-surface-border mx-1 hidden sm:block" />
-
-          {/* Rotate Button */}
-          {currentItem && (
-            <button
-              type="button"
-              onClick={handleRotate}
-              className="p-1.5 sm:p-2 rounded-md text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
-              title="Rotate 90° clockwise (R)"
-              aria-label="Rotate image"
-            >
-              <RotateCw className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* Delete Button */}
-          {currentItem && (
-            <button
-              type="button"
-              onClick={() => handleDeleteItem()}
-              className="p-1.5 sm:p-2 rounded-md text-text-muted hover:text-status-error hover:bg-surface-subtle transition-colors cursor-pointer"
-              title="Delete from gallery (Del)"
-              aria-label="Delete image"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* Merge to PDF (if available) */}
-          {items.length > 0 && onConvertImagesToPdf && (
-            <button
-              type="button"
-              onClick={() => {
-                const readyItems = items
-                  .filter((it) => Boolean(it.blob))
-                  .map((it) => ({ blob: it.blob as Blob, name: it.name }));
-                if (readyItems.length > 0) {
-                  onConvertImagesToPdf(readyItems);
-                }
-              }}
-              className="hidden md:flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium bg-surface-panel border border-surface-border text-text-main hover:border-accent hover:text-accent hover:bg-surface-subtle transition-all cursor-pointer"
-              title="Merge all gallery images to PDF"
-            >
-              <ArrowRightLeft className="w-3.5 h-3.5 text-accent" />
-              <span>To PDF</span>
-            </button>
-          )}
-        </div>
-
-        {/* Center: Image Name & Counter */}
-        <div className="flex items-center gap-2 max-w-[30%] sm:max-w-[45%] truncate text-center">
-          <span
-            className="text-xs sm:text-sm font-semibold text-text-main truncate"
-            title={currentItem?.name || 'Image Gallery'}
-          >
-            {currentItem?.name || 'Image Gallery'}
-          </span>
-          {items.length > 1 && (
-            <span className="hidden sm:inline-block text-[11px] font-mono text-text-muted shrink-0">
-              ({currentIndex + 1} of {items.length})
-            </span>
-          )}
-        </div>
-
-        {/* Right Side: View Mode, Add Photos, Download, Fullscreen, Close */}
-        <div className="flex items-center gap-1 sm:gap-1.5">
-          {/* Add Photos Button */}
-          <button
-            type="button"
-            onClick={() => addFileInputRef.current?.click()}
-            className="p-1.5 sm:p-2 rounded-md text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
-            title="Add more photos"
-            aria-label="Add photos"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-
-          {/* Grid Overview Toggle */}
-          <button
-            type="button"
-            onClick={() => setViewMode((m) => (m === 'stage' ? 'grid' : 'stage'))}
-            className={`p-1.5 sm:p-2 rounded-md transition-colors cursor-pointer ${
-              viewMode === 'grid'
-                ? 'bg-surface-subtle border border-accent text-accent font-semibold shadow-2xs'
-                : 'text-text-muted hover:text-text-main hover:bg-surface-subtle'
-            }`}
-            title={viewMode === 'stage' ? 'Grid Overview (G)' : 'Back to Single View (G)'}
-            aria-label="Toggle grid overview"
-          >
-            <Grid className="w-4 h-4" />
-          </button>
-
-          {/* Download / Save Image */}
-          {currentItem && (
-            <button
-              type="button"
-              onClick={() => handleDownloadCurrent()}
-              className="p-1.5 sm:p-2 rounded-md text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
-              title="Save image copy (Download)"
-              aria-label="Download image"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* Fullscreen Button */}
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            className="hidden sm:inline-flex p-1.5 sm:p-2 rounded-md text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
-            title={isFullscreen ? 'Exit Fullscreen (F)' : 'Toggle Fullscreen (F)'}
-            aria-label="Fullscreen"
-          >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          </button>
-
-          <div className="w-px h-4.5 bg-surface-border mx-1" />
-
-          {/* Close Window (X) */}
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 sm:p-2 rounded-md text-text-muted hover:text-status-error hover:bg-surface-subtle transition-colors cursor-pointer"
-            title="Close Gallery (Esc)"
-            aria-label="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+            {currentItem && onResizeImage && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (currentItem.blob) {
+                    onResizeImage(currentItem.blob, currentItem.name);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 h-9 sm:h-[38px] px-3 rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle hover:border-accent hover:text-accent text-text-main text-xs font-semibold transition-colors duration-fast ease-out cursor-pointer shrink-0 shadow-2xs"
+                title="Resize image"
+              >
+                <Crop className="w-3.5 h-3.5 text-accent shrink-0" />
+                <span>Resize</span>
+              </button>
+            )}
+          </div>
         </header>
       </div>
 
@@ -896,14 +1044,20 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
             onDoubleClick={handleDoubleClick}
             onContextMenu={(e) => handleContextMenu(e, currentItem)}
             style={{ touchAction: 'none' }}
-            className={`flex-1 relative flex items-center justify-center overflow-hidden select-none bg-surface-subtle/35 ${
-              scale > 1.05 ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'
+            className={`flex-1 relative flex items-center justify-center overflow-hidden select-none bg-surface-subtle ${
+              scale > 1.05
+                ? isDragging
+                  ? 'cursor-grabbing'
+                  : 'cursor-grab'
+                : items.length > 1
+                ? 'cursor-grab active:cursor-grabbing'
+                : 'cursor-default'
             }`}
           >
             {currentItem ? (() => {
               const stageW = stageContainerRef.current?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 360);
-              const slideStride = stageW + 16;
-              const showNeighbors = items.length > 1 && (Math.abs(swipeOffsetX) > 0.5 || swipeTransitioning);
+              const slideStride = stageW + 24;
+              const showNeighbors = items.length > 1;
               const prevItem = currentIndex > 0 ? items[currentIndex - 1] : null;
               const nextItem = currentIndex < items.length - 1 ? items[currentIndex + 1] : null;
 
@@ -911,20 +1065,22 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
                 <div
                   style={{
                     transform: `translate3d(${swipeOffsetX}px, 0, 0)`,
-                    transition: swipeTransitioning ? 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none',
+                    transition: swipeTransitioning ? 'transform 260ms cubic-bezier(0.2, 0.9, 0.3, 1)' : 'none',
                     willChange: showNeighbors ? 'transform' : 'auto',
                   }}
                   className="w-full h-full relative flex items-center justify-center"
                 >
-                  {/* Previous Slide */}
+                  {/* Previous Slide (always mounted for zero-latency instant swipe response) */}
                   {showNeighbors && prevItem && (
                     <div
                       style={{ transform: `translate3d(-${slideStride}px, 0, 0)` }}
-                      className="absolute inset-0 flex items-center justify-center pointer-events-none"
+                      className="absolute inset-0 flex items-center justify-center pointer-events-none select-none"
                     >
                       <img
                         src={prevItem.url}
                         alt={prevItem.name}
+                        loading="eager"
+                        decoding="async"
                         draggable={false}
                         className="max-h-[75vh] max-w-[88vw] object-contain shadow-2xl rounded-none pointer-events-none select-none"
                       />
@@ -943,20 +1099,24 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
                       src={currentItem.url}
                       alt={currentItem.name}
                       onLoad={(e) => handleImageLoad(currentItem.id, e)}
+                      loading="eager"
+                      decoding="async"
                       draggable={false}
                       className="max-h-[75vh] max-w-[88vw] object-contain shadow-2xl rounded-none pointer-events-none select-none transition-shadow"
                     />
                   </div>
 
-                  {/* Next Slide */}
+                  {/* Next Slide (always mounted for zero-latency instant swipe response) */}
                   {showNeighbors && nextItem && (
                     <div
                       style={{ transform: `translate3d(${slideStride}px, 0, 0)` }}
-                      className="absolute inset-0 flex items-center justify-center pointer-events-none"
+                      className="absolute inset-0 flex items-center justify-center pointer-events-none select-none"
                     >
                       <img
                         src={nextItem.url}
                         alt={nextItem.name}
+                        loading="eager"
+                        decoding="async"
                         draggable={false}
                         className="max-h-[75vh] max-w-[88vw] object-contain shadow-2xl rounded-none pointer-events-none select-none"
                       />
@@ -965,22 +1125,18 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
                 </div>
               );
             })() : (
-              /* Solid, elegant Empty State (No images) */
-              <div className="flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto">
-                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 border border-surface-border bg-surface-panel shadow-xs">
-                  <FileImage className="w-8 h-8 text-text-muted" />
-                </div>
-                <h3 className="text-base font-semibold text-text-main mb-1">No Images in Gallery</h3>
-                <p className="text-xs text-text-muted mb-5 leading-relaxed">
-                  Open an image with Paperweight, drag and drop photos here, or click below to browse files.
+              /* Empty State: one plain line, one primary action */
+              <div className="flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto gap-3">
+                <p className="text-sm text-text-muted">
+                  Choose images from your device to view.
                 </p>
                 <button
                   type="button"
                   onClick={() => addFileInputRef.current?.click()}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-accent text-white hover:bg-accent-hover shadow-sm transition-all cursor-pointer"
+                  className="min-h-[44px] flex items-center gap-2 px-5 rounded-control text-sm font-semibold bg-accent text-accent-contrast hover:bg-accent-hover transition-colors cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Add Images</span>
+                  <span>Choose files</span>
                 </button>
               </div>
             )}
@@ -993,7 +1149,8 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
                   e.stopPropagation();
                   handlePrev();
                 }}
-                className="hidden sm:flex absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-surface-panel/85 hover:bg-surface-panel border border-surface-border text-text-main hover:text-accent items-center justify-center backdrop-blur-md shadow-lg transition-all hover:scale-105 active:scale-95 cursor-pointer z-20"
+                className="hidden sm:flex absolute left-4 top-1/2 -translate-y-1/2 w-11 h-11 rounded-control bg-surface-panel hover:bg-surface-hover border border-surface-border text-text-main items-center justify-center shadow-lifted transition-colors cursor-pointer z-20"
+                title="Previous image"
                 aria-label="Previous Image"
               >
                 <ChevronLeft className="w-5 h-5" />
@@ -1008,7 +1165,8 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
                   e.stopPropagation();
                   handleNext();
                 }}
-                className="hidden sm:flex absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-surface-panel/85 hover:bg-surface-panel border border-surface-border text-text-main hover:text-accent items-center justify-center backdrop-blur-md shadow-lg transition-all hover:scale-105 active:scale-95 cursor-pointer z-20"
+                className="hidden sm:flex absolute right-4 top-1/2 -translate-y-1/2 w-11 h-11 rounded-control bg-surface-panel hover:bg-surface-hover border border-surface-border text-text-main items-center justify-center shadow-lifted transition-colors cursor-pointer z-20"
+                title="Next image"
                 aria-label="Next Image"
               >
                 <ChevronRight className="w-5 h-5" />
@@ -1017,7 +1175,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
 
             {/* Feedback Toast for Copy to Clipboard */}
             {copiedSuccess && (
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3.5 py-1.5 rounded-full bg-surface-panel border border-surface-border shadow-xl flex items-center gap-2 text-xs font-semibold text-status-offline z-30 animate-in fade-in">
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3.5 py-2 rounded-sheet bg-surface-panel border border-status-success-border shadow-lifted flex items-center gap-2 text-xs font-semibold text-status-success z-30">
                 <Check className="w-4 h-4" />
                 <span>Image copied to clipboard</span>
               </div>
@@ -1025,170 +1183,64 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
           </div>
 
           {/* ─────────────────────────────────────────────────────────────
-              BOTTOM FILMSTRIP CAROUSEL (Optional Ribbon)
+              BOTTOM STATUS & METADATA BAR (with Android Safe-Area Clearance)
           ───────────────────────────────────────────────────────────── */}
-          {showFilmstrip && items.length > 1 && (
-            <div className="h-16 shrink-0 px-4 pl-[max(1rem,var(--safe-area-left))] pr-[max(1rem,var(--safe-area-right))] flex items-center justify-between gap-3 z-20 select-none overflow-hidden bg-surface-panel border-t border-surface-border">
-              <div
-                ref={filmstripRef}
-                className="flex-1 flex items-center gap-2 overflow-x-auto py-1 no-scrollbar"
-              >
-                {items.map((item, idx) => {
-                  const isActive = idx === currentIndex;
-                  return (
-                    <button
-                      key={item.id}
-                      data-index={idx}
-                      type="button"
-                      onClick={() => setCurrentIndex(idx)}
-                      onContextMenu={(e) => handleContextMenu(e, item)}
-                      className={`relative shrink-0 h-12 aspect-square rounded-none overflow-hidden border transition-all cursor-pointer group ${
-                        isActive
-                          ? 'border-accent ring-2 ring-accent/60 scale-105 shadow-md z-10'
-                          : 'border-surface-border opacity-70 hover:opacity-100 hover:border-accent/50 bg-surface-subtle'
-                      }`}
+          <div className="shrink-0 w-full bg-surface-panel border-t border-surface-border text-text-muted z-30 select-none pb-[var(--safe-area-bottom)] pl-[var(--safe-area-left)] pr-[var(--safe-area-right)] transition-[padding] duration-150">
+            <footer className="h-11 sm:h-12 px-3 sm:px-4 flex items-center justify-center text-xs">
+              {currentItem ? (
+                isMobile ? (
+                  /* APK / Mobile status layout: name shifted to bottom in fixed width area, no duplicate ratio, clean monospace */
+                  <div className="flex items-center gap-1.5 sm:gap-2 font-mono text-[11px] sm:text-xs text-text-muted truncate max-w-full">
+                    {/* Fixed area for image name so it doesn't mess with anything else */}
+                    <span
+                      className="font-medium text-text-main truncate max-w-[90px] xs:max-w-[130px] sm:max-w-[160px] shrink-0"
+                      title={currentItem.name}
                     >
-                      <img
-                        src={item.url}
-                        alt={item.name}
-                        className="w-full h-full object-cover rounded-none"
-                      />
-                      <span className="absolute bottom-0.5 right-0.5 px-1 rounded bg-surface-panel/90 text-[9px] font-mono text-text-main border border-surface-border/50">
-                        {idx + 1}
-                      </span>
-                    </button>
-                  );
-                })}
-
-                {/* Add Images Button in Ribbon */}
-                <button
-                  type="button"
-                  onClick={() => addFileInputRef.current?.click()}
-                  className="shrink-0 h-12 aspect-square rounded-md border border-dashed border-surface-border hover:border-accent bg-surface-subtle/30 text-text-muted hover:text-accent flex flex-col items-center justify-center gap-0.5 transition-colors cursor-pointer"
-                  title="Add more images"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span className="text-[9px] font-semibold">Add</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ─────────────────────────────────────────────────────────────
-              BOTTOM STATUS & CONTROL BAR (with Android Safe-Area Bottom)
-          ───────────────────────────────────────────────────────────── */}
-          <div className="shrink-0 w-full bg-surface-panel border-t border-surface-border text-text-muted z-30 select-none pb-[var(--safe-area-bottom)] pl-[var(--safe-area-left)] pr-[var(--safe-area-right)]">
-            <footer className="h-10 sm:h-11 px-3 sm:px-4 flex items-center justify-between text-xs">
-            {/* Left: Filmstrip toggle & File Metadata badge */}
-            <div className="flex items-center gap-2.5 min-w-0">
-              {items.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => setShowFilmstrip((s) => !s)}
-                  className={`p-1 rounded text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer ${
-                    showFilmstrip ? 'text-accent' : ''
-                  }`}
-                  title={showFilmstrip ? 'Hide filmstrip' : 'Show filmstrip'}
-                >
-                  <ImageIcon className="w-3.5 h-3.5" />
-                </button>
-              )}
-
-              {currentItem && (
-                <div className="flex items-center gap-2 font-mono text-[11px] text-text-muted truncate">
-                  <span className="font-semibold text-text-main">{currentFormat}</span>
-                  <span className="text-surface-border">|</span>
-                  <span>
-                    {currentDims ? `${currentDims.width} × ${currentDims.height}` : '—'}
-                  </span>
-                  {currentItem.size ? (
-                    <>
-                      <span className="text-surface-border">|</span>
-                      <span>{formatBytes(currentItem.size)}</span>
-                    </>
-                  ) : null}
-                </div>
-              )}
-            </div>
-
-            {/* Center: Stage quick tools (Rotate, Fit/1:1) */}
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={handleRotate}
-                className="p-1 sm:p-1.5 rounded text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
-                title="Rotate (R)"
-              >
-                <RotateCw className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={handleFit}
-                className="p-1 sm:p-1.5 rounded text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
-                title="Fit to screen (0)"
-              >
-                <Maximize className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={handleFlipH}
-                className="p-1 sm:p-1.5 rounded text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
-                title="Flip horizontally"
-              >
-                <FlipHorizontal className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {/* Right: Zoom controls with percentage and slider */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleZoomOut}
-                className="p-1 rounded text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
-                title="Zoom out (-)"
-              >
-                <ZoomOut className="w-3.5 h-3.5" />
-              </button>
-
-              <button
-                type="button"
-                onClick={handleFit}
-                className="text-[11px] font-mono text-text-muted hover:text-text-main hover:bg-surface-subtle px-1 py-0.5 rounded cursor-pointer min-w-[40px] text-center"
-                title="Reset zoom to 100% (1)"
-              >
-                {Math.round(scale * 100)}%
-              </button>
-
-              <button
-                type="button"
-                onClick={handleZoomIn}
-                className="p-1 rounded text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
-                title="Zoom in (+)"
-              >
-                <ZoomIn className="w-3.5 h-3.5" />
-              </button>
-
-              {/* Slider for smooth zoom level control */}
-              <input
-                type="range"
-                min="25"
-                max="600"
-                step="5"
-                value={Math.round(scale * 100)}
-                onChange={(e) => setScale(Number(e.target.value) / 100)}
-                aria-label="Zoom Level"
-                className="w-16 sm:w-24 h-1 accent-accent bg-surface-subtle rounded-lg cursor-pointer hidden xs:inline-block"
-              />
-
-              <button
-                type="button"
-                onClick={toggleFullscreen}
-                className="p-1 rounded text-text-muted hover:text-text-main hover:bg-surface-subtle transition-colors cursor-pointer"
-                title="Fullscreen (F)"
-              >
-                <Maximize2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
+                      {currentItem.name}
+                    </span>
+                    <span className="text-surface-border shrink-0">|</span>
+                    <span className="font-semibold text-text-main shrink-0">{currentFormat}</span>
+                    <span className="text-surface-border shrink-0">|</span>
+                    {/* Plain dimensions only (e.g. 100 × 1200), ratio description removed */}
+                    <span className="text-text-main shrink-0">
+                      {currentDims ? `${currentDims.width} × ${currentDims.height}` : '—'}
+                    </span>
+                    {currentItem.size ? (
+                      <>
+                        <span className="text-surface-border shrink-0">|</span>
+                        <span className="shrink-0">{formatBytes(currentItem.size)}</span>
+                      </>
+                    ) : null}
+                    {items.length > 1 && (
+                      <>
+                        <span className="text-surface-border shrink-0">|</span>
+                        <span className="text-text-muted font-sans font-medium shrink-0">{currentIndex + 1} / {items.length}</span>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  /* Desktop / EXE layout: exactly preserved */
+                  <div className="flex items-center gap-2 sm:gap-3 font-mono text-[11px] sm:text-xs text-text-muted truncate">
+                    <span className="font-semibold text-text-main">{currentFormat}</span>
+                    <span className="text-surface-border">|</span>
+                    <span className="text-text-main">
+                      {currentDims ? `${currentDims.width} × ${currentDims.height}${aspectRatioStr ? ` (${aspectRatioStr})` : ''}` : '—'}
+                    </span>
+                    {currentItem.size ? (
+                      <>
+                        <span className="text-surface-border">|</span>
+                        <span>{formatBytes(currentItem.size)}</span>
+                      </>
+                    ) : null}
+                    {items.length > 1 && (
+                      <>
+                        <span className="text-surface-border">|</span>
+                        <span className="text-text-muted font-sans font-medium">{currentIndex + 1} / {items.length}</span>
+                      </>
+                    )}
+                  </div>
+                )
+              ) : null}
             </footer>
           </div>
         </div>
@@ -1229,7 +1281,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
                         onConvertImagesToPdf(readyItems);
                       }
                     }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent hover:bg-accent-hover text-white shadow-xs transition-colors cursor-pointer"
+                    className="min-h-[44px] flex items-center gap-1.5 px-3.5 rounded-control text-xs font-semibold bg-accent hover:bg-accent-hover text-accent-contrast transition-colors cursor-pointer"
                   >
                     <ArrowRightLeft className="w-3.5 h-3.5" />
                     <span>Merge to PDF</span>
@@ -1250,19 +1302,19 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
                       setViewMode('stage');
                     }}
                     onContextMenu={(e) => handleContextMenu(e, item)}
-                    className="group relative aspect-square rounded-none overflow-hidden border border-surface-border hover:border-accent bg-surface-panel cursor-pointer shadow-xs hover:shadow-md transition-all hover:scale-[1.02]"
+                    className="paper-sheet group relative aspect-square overflow-hidden cursor-pointer transition-colors"
                   >
                     <img
                       src={item.url}
                       alt={item.name}
                       onLoad={(e) => handleImageLoad(item.id, e)}
-                      className="w-full h-full object-cover rounded-none transition-transform duration-300 group-hover:scale-105"
+                      className="w-full h-full object-cover"
                     />
 
                     {/* Card Overlay with dynamic theme support */}
                     <div className="absolute inset-0 flex flex-col justify-between p-2 pointer-events-none">
                       <div className="flex justify-between items-start pointer-events-auto">
-                        <span className="px-1.5 py-0.5 rounded bg-surface-panel/90 backdrop-blur-xs text-[10px] font-mono text-text-muted border border-surface-border/60 shadow-xs">
+                        <span className="px-2 py-0.5 rounded-chip bg-surface-panel text-xs font-mono text-text-muted border border-surface-border shadow-xs">
                           #{idx + 1}
                         </span>
                         <button
@@ -1271,18 +1323,19 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
                             e.stopPropagation();
                             handleDeleteItem(item);
                           }}
-                          className="p-1 rounded bg-surface-panel/90 hover:bg-status-error hover:text-white text-text-muted transition-colors cursor-pointer border border-surface-border/60 shadow-xs opacity-0 group-hover:opacity-100"
+                          className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control bg-surface-panel hover:bg-status-error hover:text-white text-text-muted transition-colors cursor-pointer border border-surface-border shadow-xs opacity-0 group-hover:opacity-100"
                           title="Remove image"
+                          aria-label={`Remove ${item.name}`}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
 
-                      <div className="bg-surface-panel/95 backdrop-blur-xs rounded-lg p-2 border border-surface-border/70 shadow-xs text-text-main pointer-events-auto">
-                        <p className="text-xs font-semibold text-text-main truncate" title={item.name}>
+                      <div className="bg-surface-panel rounded-control p-2 border border-surface-border shadow-xs text-text-main pointer-events-auto">
+                        <p className="text-xs font-mono font-semibold text-text-main truncate" title={item.name}>
                           {item.name}
                         </p>
-                        <div className="flex items-center justify-between text-[10px] font-mono text-text-muted mt-0.5">
+                        <div className="flex items-center justify-between text-xs font-mono text-text-muted mt-0.5">
                           <span>{item.size ? formatBytes(item.size) : ''}</span>
                           <span>{dims ? `${dims.width}×${dims.height}` : ''}</span>
                         </div>
@@ -1293,15 +1346,14 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
               })}
 
               {/* Add card in grid */}
-              <div
+              <button
+                type="button"
                 onClick={() => addFileInputRef.current?.click()}
-                className="aspect-square rounded-xl border-2 border-dashed border-surface-border hover:border-accent bg-surface-subtle/30 hover:bg-surface-subtle/60 flex flex-col items-center justify-center gap-2 p-4 text-text-muted hover:text-accent cursor-pointer transition-all"
+                className="aspect-square rounded-sheet border border-surface-border hover:border-surface-border-strong bg-surface-panel hover:bg-surface-hover flex flex-col items-center justify-center gap-2 p-4 text-text-muted hover:text-text-main cursor-pointer transition-colors"
               >
-                <div className="w-10 h-10 rounded-full flex items-center justify-center bg-surface-panel border border-surface-border text-accent shadow-xs">
-                  <Plus className="w-5 h-5" />
-                </div>
-                <span className="text-xs font-semibold text-center">Add Photos</span>
-              </div>
+                <Plus className="w-5 h-5" />
+                <span className="text-xs font-semibold text-center">Choose files</span>
+              </button>
             </div>
           </div>
         </div>
@@ -1318,7 +1370,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
             top: `${contextMenu.y}px`,
             zIndex: 100,
           }}
-          className="w-56 rounded-xl border border-surface-border bg-surface-panel shadow-panel py-1.5 text-xs text-text-main select-none animate-in fade-in zoom-in-95 duration-100"
+          className="w-56 rounded-sheet border border-surface-border bg-surface-panel shadow-lifted p-1.5 text-xs text-text-main select-none space-y-0.5"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header with image name */}
@@ -1437,7 +1489,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
           <button
             type="button"
             onClick={() => handleDeleteItem(contextMenu.item)}
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-status-error/15 text-status-error transition-colors cursor-pointer"
+            className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left hover:bg-status-error-bg text-status-error transition-colors cursor-pointer"
           >
             <Trash2 className="w-4 h-4" />
             <span>Delete</span>

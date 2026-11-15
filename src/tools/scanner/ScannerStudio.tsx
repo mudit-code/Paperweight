@@ -337,32 +337,25 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
       {!isCameraOpen && !isEditorOpen && (
         <div className="shrink-0 px-3 sm:px-6 py-2.5 bg-surface-subtle border-b border-surface-border flex items-center justify-between gap-3 overflow-x-auto no-scrollbar">
         {/* Left: Title & Page Count */}
-        <div className="flex items-center gap-2.5 shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-accent-subtle border border-accent/20 text-accent flex items-center justify-center shrink-0">
-            <Sparkles className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-text-main truncate max-w-[140px] xs:max-w-[200px] sm:max-w-xs">
-                Document Scanner
-              </h2>
-              <Badge variant="accent" size="sm">
-                {files.length} {files.length === 1 ? 'Page' : 'Pages'}
-              </Badge>
-            </div>
-          </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <h2 className="text-sm font-semibold text-text-main truncate max-w-[140px] xs:max-w-[200px] sm:max-w-xs">
+            Document Scanner
+          </h2>
+          <Badge variant="accent" size="sm">
+            {files.length} {files.length === 1 ? 'Page' : 'Pages'}
+          </Badge>
         </div>
 
         {/* Right: Quick Action Buttons & Presets */}
         <div className="flex items-center gap-2 shrink-0">
             {/* Filter preset selector */}
-            <div className="inline-flex items-center p-0.5 rounded-xl bg-surface-panel border border-surface-border shadow-2xs">
+            <div className="inline-flex items-center p-0.5 rounded-control bg-surface-panel border border-surface-border">
               <button
                 type="button"
                 onClick={() => handleFilterChange('bw')}
-                className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all duration-150 cursor-pointer whitespace-nowrap active:scale-95 ${
+                className={`min-h-[36px] px-2.5 text-xs font-medium rounded-control transition-colors cursor-pointer whitespace-nowrap ${
                   activeFilter === 'bw'
-                    ? 'bg-accent text-white font-semibold shadow-xs'
+                    ? 'bg-accent text-accent-contrast font-semibold'
                     : 'text-text-muted hover:text-text-main hover:bg-surface-subtle'
                 }`}
               >
@@ -371,9 +364,9 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
               <button
                 type="button"
                 onClick={() => handleFilterChange('grayscale')}
-                className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all duration-150 cursor-pointer whitespace-nowrap active:scale-95 ${
+                className={`min-h-[36px] px-2.5 text-xs font-medium rounded-control transition-colors cursor-pointer whitespace-nowrap ${
                   activeFilter === 'grayscale'
-                    ? 'bg-accent text-white font-semibold shadow-xs'
+                    ? 'bg-accent text-accent-contrast font-semibold'
                     : 'text-text-muted hover:text-text-main hover:bg-surface-subtle'
                 }`}
               >
@@ -382,9 +375,9 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
               <button
                 type="button"
                 onClick={() => handleFilterChange('color')}
-                className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all duration-150 cursor-pointer whitespace-nowrap active:scale-95 ${
+                className={`min-h-[36px] px-2.5 text-xs font-medium rounded-control transition-colors cursor-pointer whitespace-nowrap ${
                   activeFilter === 'color'
-                    ? 'bg-accent text-white font-semibold shadow-xs'
+                    ? 'bg-accent text-accent-contrast font-semibold'
                     : 'text-text-muted hover:text-text-main hover:bg-surface-subtle'
                 }`}
               >
@@ -393,9 +386,9 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
               <button
                 type="button"
                 onClick={() => handleFilterChange('none')}
-                className={`px-2.5 py-1 text-[11px] font-medium rounded-lg transition-all duration-150 cursor-pointer whitespace-nowrap active:scale-95 ${
+                className={`min-h-[36px] px-2.5 text-xs font-medium rounded-control transition-colors cursor-pointer whitespace-nowrap ${
                   activeFilter === 'none'
-                    ? 'bg-accent text-white font-semibold shadow-xs'
+                    ? 'bg-accent text-accent-contrast font-semibold'
                     : 'text-text-muted hover:text-text-main hover:bg-surface-subtle'
                 }`}
               >
@@ -410,9 +403,8 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
             <Button
               variant="secondary"
               size="sm"
-              leftIcon={<Camera className="w-3.5 h-3.5 text-accent" />}
+              leftIcon={<Camera className="w-3.5 h-3.5" />}
               onClick={() => setIsCameraOpen(true)}
-              className="h-8 text-xs font-semibold px-2.5 sm:px-3 whitespace-nowrap"
             >
               <span className="hidden xs:inline">Camera</span> Scan
             </Button>
@@ -422,7 +414,6 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
               size="sm"
               leftIcon={<FolderPlus className="w-3.5 h-3.5" />}
               onClick={() => fileInputRef.current?.click()}
-              className="h-8 text-xs font-semibold px-2.5 sm:px-3 whitespace-nowrap"
             >
               Add Files
             </Button>
@@ -434,7 +425,6 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
               size="sm"
               leftIcon={<FolderPlus className="w-3.5 h-3.5" />}
               onClick={() => fileInputRef.current?.click()}
-              className="h-8 text-xs font-medium px-2.5 sm:px-3 whitespace-nowrap"
             >
               + Images
             </Button>
@@ -443,9 +433,9 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
           <Button
             variant="secondary"
             size="sm"
-            leftIcon={<FileText className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />}
+            leftIcon={<FileText className="w-3.5 h-3.5" />}
             onClick={() => pdfInputRef.current?.click()}
-            className="h-8 text-xs font-medium px-2.5 sm:px-3 whitespace-nowrap hidden sm:inline-flex"
+            className="hidden sm:inline-flex"
           >
             + PDF
           </Button>
@@ -456,7 +446,6 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
               size="sm"
               leftIcon={<Crop className="w-3.5 h-3.5" />}
               onClick={() => setIsEditorOpen(true)}
-              className="h-8 text-xs font-semibold px-2.5 sm:px-3 whitespace-nowrap bg-blue-600 hover:bg-blue-700 text-white"
             >
               Open Editor
             </Button>
@@ -469,8 +458,9 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
                 onFilesChange([]);
                 setCapturedRawFiles([]);
               }}
-              className="p-1.5 rounded-lg text-text-muted hover:text-status-error hover:bg-status-error-bg border border-transparent hover:border-status-error-border transition-colors cursor-pointer"
+              className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control text-text-muted hover:text-status-error hover:bg-status-error-bg border border-transparent hover:border-status-error-border transition-colors cursor-pointer"
               title="Clear all pages"
+              aria-label="Clear all pages"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -481,24 +471,22 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
 
       {/* RESULT STATE: Scanned Document Ready */}
       {result && (
-        <div className="m-3 sm:m-5 p-4 sm:p-5 rounded-2xl bg-surface-panel border border-surface-border shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in shrink-0">
+        <div className="m-3 sm:m-5 p-4 rounded-sheet bg-surface-panel border border-surface-border flex flex-col sm:flex-row items-center justify-between gap-4 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-              <CheckCircle2 className="w-5 h-5" />
-            </div>
+            <CheckCircle2 className="w-5 h-5 text-status-success shrink-0" />
             <div className="min-w-0">
               <h3 className="text-sm font-semibold text-text-main truncate">
                 {result.title || 'Document Scan Complete'}
               </h3>
-              <p className="text-xs text-text-muted mt-0.5">
-                {result.filename} &bull; <span className="font-mono text-accent font-semibold">{formatBytes(result.size)}</span>
+              <p className="text-xs text-text-muted mt-0.5 font-mono">
+                {result.filename} &bull; {formatBytes(result.size)}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
             {onDismissResult && (
-              <Button variant="secondary" size="sm" onClick={onDismissResult} className="text-xs">
+              <Button variant="secondary" size="sm" onClick={onDismissResult}>
                 Back to Studio
               </Button>
             )}
@@ -521,7 +509,6 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
                   downloadBlob(result.blob, result.filename);
                 }
               }}
-              className="text-xs font-semibold shadow-xs"
             >
               Save {result.fileType === 'pdf' ? 'PDF' : (isMobile ? 'All Scans' : 'Archive')}
             </Button>
@@ -531,100 +518,64 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
 
       {/* MAIN STUDIO VIEWPORT */}
       <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5">
-        {/* STATE 0: EMPTY STATE (Dropzone with Camera prominent) */}
+        {/* STATE 0: EMPTY STATE (One plain line, clear primary action) */}
         {files.length === 0 ? (
           <div
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            className={`h-full min-h-[340px] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center p-6 text-center transition-all ${
+            className={`h-full min-h-[300px] rounded-sheet border flex flex-col items-center justify-center p-6 text-center transition-colors ${
               isDragOver
-                ? 'border-accent bg-accent-subtle/30 ring-2 ring-accent/30'
-                : 'border-surface-border bg-surface-subtle/40 hover:border-surface-border-focus'
+                ? 'border-accent bg-surface-hover shadow-lifted'
+                : 'border-surface-border bg-surface-panel'
             }`}
           >
-            <div className="max-w-md flex flex-col items-center space-y-4">
-              {/* Trigger icon: Camera on mobile, FolderPlus on desktop */}
-              {isMobile ? (
-                <button
-                  type="button"
-                  onClick={() => setIsCameraOpen(true)}
-                  className="w-20 h-20 rounded-full bg-accent text-white shadow-xl shadow-accent/20 flex items-center justify-center hover:scale-105 active:scale-95 transition-all cursor-pointer group"
-                  aria-label="Open Camera Scanner"
-                >
-                  <Camera className="w-8 h-8 group-hover:scale-110 transition-transform" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-20 h-20 rounded-full bg-accent-subtle text-accent border border-accent/20 shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all cursor-pointer group"
-                  aria-label="Add Files"
-                >
-                  <FolderPlus className="w-8 h-8 group-hover:scale-110 transition-transform" />
-                </button>
-              )}
-
-              <div className="space-y-1.5">
-                <h3 className="font-serif font-bold text-lg text-text-main">
-                  {isMobile ? 'Scan Document' : 'Document Scanner & Enhancer'}
-                </h3>
-                <p className="text-xs text-text-muted">
-                  {isMobile
-                    ? 'Use your phone camera to capture multi-page documents, or drag and drop images and PDF files here.'
-                    : 'Select or drop document images and PDF files here to crop edges, enhance readability, and convert offline.'}
-                </p>
-              </div>
+            <div className="max-w-md flex flex-col items-center gap-3">
+              <p className="text-sm text-text-muted">
+                {isMobile
+                  ? 'Scan pages with your camera or choose files from your device.'
+                  : 'Choose document images or PDF files, or drop them onto the desk.'}
+              </p>
 
               {/* Action buttons */}
-              <div className="flex items-center gap-2.5 flex-wrap justify-center pt-2">
+              <div className="flex items-center gap-2.5 flex-wrap justify-center pt-1">
                 {isMobile ? (
                   <>
                     <Button
                       variant="primary"
-                      size="sm"
+                      size="md"
                       leftIcon={<Camera className="w-4 h-4" />}
                       onClick={() => setIsCameraOpen(true)}
-                      className="text-xs font-semibold shadow-xs"
                     >
                       Scan with Camera
                     </Button>
                     <Button
                       variant="secondary"
-                      size="sm"
+                      size="md"
                       leftIcon={<FolderPlus className="w-4 h-4" />}
                       onClick={() => fileInputRef.current?.click()}
-                      className="text-xs font-medium"
                     >
-                      Import Images
+                      Choose files
                     </Button>
                   </>
                 ) : (
                   <Button
                     variant="primary"
-                    size="sm"
+                    size="md"
                     leftIcon={<FolderPlus className="w-4 h-4" />}
                     onClick={() => fileInputRef.current?.click()}
-                    className="text-xs font-semibold shadow-xs"
                   >
                     Add Files
                   </Button>
                 )}
                 <Button
                   variant="secondary"
-                  size="sm"
-                  leftIcon={<FileText className="w-4 h-4 text-amber-600 dark:text-amber-400" />}
+                  size="md"
+                  leftIcon={<FileText className="w-4 h-4" />}
                   onClick={() => pdfInputRef.current?.click()}
-                  className="text-xs font-medium"
                 >
-                  Import PDF
+                  Choose PDF
                 </Button>
-              </div>
-
-              {/* Offline & privacy pill */}
-              <div className="pt-4 flex items-center gap-2 text-[11px] font-mono text-text-faint">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span>100% On-Device Processing &bull; Zero Network Uploads</span>
               </div>
             </div>
           </div>
@@ -645,9 +596,9 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
                       fileInputRef.current?.click();
                     }
                   }}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-subtle hover:bg-surface-panel border border-surface-border text-xs font-medium text-text-main cursor-pointer transition-colors shadow-2xs"
+                  className="min-h-[44px] inline-flex items-center gap-1.5 px-3 rounded-control bg-surface-panel hover:bg-surface-hover border border-surface-border text-xs font-semibold text-text-main cursor-pointer transition-colors"
                 >
-                  <Plus className="w-3.5 h-3.5 text-accent" />
+                  <Plus className="w-4 h-4 text-accent" />
                   <span>{isMobile ? 'Add Page' : 'Add Files'}</span>
                 </button>
               </div>
@@ -660,10 +611,10 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
                 return (
                   <div
                     key={file.id}
-                    className="group relative rounded-xl border border-surface-border bg-surface-panel overflow-hidden shadow-2xs flex flex-col hover:border-accent hover:shadow-md transition-all duration-200"
+                    className="paper-sheet group relative overflow-hidden flex flex-col"
                   >
                     {/* Top Page Number Badge */}
-                    <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-md bg-black/70 text-white font-mono text-[10px] font-semibold backdrop-blur-xs">
+                    <div className="absolute top-2 left-2 z-10 px-2 py-0.5 rounded-chip bg-surface-panel text-text-main border border-surface-border shadow-xs font-mono text-xs font-medium">
                       Page {idx + 1}
                     </div>
 
@@ -671,7 +622,7 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
                     <button
                       type="button"
                       onClick={() => handleRemovePage(idx)}
-                      className="absolute top-2 right-2 z-10 p-1 rounded-md bg-black/60 hover:bg-status-error text-white/90 hover:text-white transition-colors cursor-pointer shadow-xs"
+                      className="absolute top-2 right-2 z-10 min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control bg-surface-panel hover:bg-status-error text-text-muted hover:text-white border border-surface-border shadow-xs transition-colors cursor-pointer"
                       title="Remove page"
                       aria-label="Remove page"
                     >
@@ -695,18 +646,18 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
                           }`}
                         />
                       ) : isPdf ? (
-                        <div className="flex flex-col items-center justify-center p-4 text-center">
-                          <FileText className="w-10 h-10 text-amber-500 mb-1" />
-                          <span className="text-[10px] font-mono text-text-muted">PDF Document</span>
+                        <div className="flex flex-col items-center justify-center p-4 text-center text-text-muted">
+                          <FileText className="w-9 h-9 mb-1" />
+                          <span className="text-xs font-mono">PDF</span>
                         </div>
                       ) : (
-                        <FileImage className="w-8 h-8 text-text-faint" />
+                        <FileImage className="w-8 h-8 text-text-muted" />
                       )}
                     </div>
 
                     {/* Bottom Page Controls */}
                     <div className="p-2 border-t border-surface-border bg-surface-panel flex items-center justify-between">
-                      <span className="text-[10px] font-mono text-text-muted truncate max-w-[70px]">
+                      <span className="text-xs font-mono text-text-muted truncate max-w-[70px]">
                         {formatBytes(file.size)}
                       </span>
 
@@ -716,19 +667,21 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
                           type="button"
                           disabled={idx === 0}
                           onClick={() => handleMovePage(idx, 'prev')}
-                          className="p-1 rounded hover:bg-surface-subtle disabled:opacity-30 disabled:cursor-not-allowed text-text-muted hover:text-text-main cursor-pointer"
+                          className="min-w-[36px] min-h-[36px] inline-flex items-center justify-center rounded-control hover:bg-surface-subtle disabled:text-text-disabled disabled:cursor-not-allowed text-text-muted hover:text-text-main cursor-pointer"
                           title="Move left"
+                          aria-label="Move page earlier"
                         >
-                          <ArrowLeft className="w-3 h-3" />
+                          <ArrowLeft className="w-3.5 h-3.5" />
                         </button>
                         <button
                           type="button"
                           disabled={idx === files.length - 1}
                           onClick={() => handleMovePage(idx, 'next')}
-                          className="p-1 rounded hover:bg-surface-subtle disabled:opacity-30 disabled:cursor-not-allowed text-text-muted hover:text-text-main cursor-pointer"
+                          className="min-w-[36px] min-h-[36px] inline-flex items-center justify-center rounded-control hover:bg-surface-subtle disabled:text-text-disabled disabled:cursor-not-allowed text-text-muted hover:text-text-main cursor-pointer"
                           title="Move right"
+                          aria-label="Move page later"
                         >
-                          <ArrowRight className="w-3 h-3" />
+                          <ArrowRight className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
@@ -743,31 +696,31 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
       {/* BOTTOM EXECUTE BAR */}
       {!isCameraOpen && !isEditorOpen && (
         <div className="shrink-0 px-4 sm:px-6 py-3 bg-surface-subtle border-t border-surface-border flex items-center justify-between gap-3">
-          {/* Output format pill */}
+          {/* Output format segmented control */}
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-text-muted hidden xs:inline">Output:</span>
-            <div className="inline-flex items-center p-0.5 rounded-lg bg-surface-panel border border-surface-border text-xs">
+            <div className="inline-flex items-center p-0.5 rounded-control bg-surface-panel border border-surface-border text-xs">
               <button
                 type="button"
                 onClick={() => handleOutputModeChange('pdf')}
-                className={`px-2.5 py-1 text-xs font-semibold rounded transition-all cursor-pointer ${
+                className={`min-h-[36px] px-2.5 text-xs font-semibold rounded-control transition-colors cursor-pointer ${
                   outputMode === 'pdf'
-                    ? 'bg-accent text-white shadow-2xs'
+                    ? 'bg-accent text-accent-contrast'
                     : 'text-text-muted hover:text-text-main'
                 }`}
               >
-                PDF Document
+                PDF
               </button>
               <button
                 type="button"
                 onClick={() => handleOutputModeChange('images')}
-                className={`px-2.5 py-1 text-xs font-semibold rounded transition-all cursor-pointer ${
+                className={`min-h-[36px] px-2.5 text-xs font-semibold rounded-control transition-colors cursor-pointer ${
                   outputMode === 'images'
-                    ? 'bg-accent text-white shadow-2xs'
+                    ? 'bg-accent text-accent-contrast'
                     : 'text-text-muted hover:text-text-main'
                 }`}
               >
-                Images (ZIP)
+                Images
               </button>
             </div>
           </div>
@@ -780,13 +733,12 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
             isLoading={isProcessing}
             leftIcon={<Sparkles className="w-4 h-4" />}
             onClick={onExecute}
-            className="font-semibold text-xs px-4 sm:px-6 shadow-sm"
           >
             {isProcessing
-              ? 'Scanning & Compiling...'
+              ? 'Compiling...'
               : outputMode === 'pdf'
-              ? `Export ${files.length} Pages as PDF`
-              : `Export ${files.length} Scanned Images`}
+              ? `Export ${files.length} PDF`
+              : `Export ${files.length} Images`}
           </Button>
         </div>
       )}

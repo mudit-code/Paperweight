@@ -27,12 +27,13 @@ export const BaseToolUI: React.FC<BaseToolUIProps> = ({
   onDismissError,
   sizeEstimate,
   onCancel,
+  onViewFile,
 }) => {
   return (
     <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6">
       {/* Tool Header */}
       <div className="space-y-1">
-        <h1 className="text-xl sm:text-2xl font-serif font-bold text-text-main tracking-tight">
+        <h1 className="text-lg sm:text-xl font-semibold text-text-main tracking-tight">
           {toolName}
         </h1>
         <p className="text-xs sm:text-sm text-text-muted">{tagline}</p>
@@ -90,6 +91,7 @@ export const BaseToolUI: React.FC<BaseToolUIProps> = ({
         maxFiles={maxFiles}
         disabled={isProcessing}
         sizeEstimate={sizeEstimate}
+        onViewFile={onViewFile}
       />
     </div>
   );

@@ -23,15 +23,17 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
       aria-valuemin={0}
       aria-valuemax={100}
       aria-label={progress.message || `Processing: ${percentage}%`}
-      className={`p-4 rounded-lg bg-surface-panel border border-surface-border shadow-panel space-y-3 ${className}`}
+      className={`p-4 rounded-sheet bg-surface-panel border border-surface-border space-y-3 ${className}`}
     >
-      <div className="flex items-center justify-between text-xs">
-        <div className="flex items-center gap-2">
-          <span className="font-mono font-medium text-accent">{percentage}%</span>
-          <span className="text-text-main font-medium">{progress.phase}</span>
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-mono font-bold text-xs px-2 py-0.5 rounded-chip bg-accent text-accent-contrast shrink-0">
+            {percentage}%
+          </span>
+          <span className="text-text-main font-semibold text-sm shrink-0">{progress.phase}</span>
           {progress.message && (
-            <span className="text-text-muted truncate max-w-[200px] sm:max-w-xs">
-              — {progress.message}
+            <span className="text-text-muted text-xs truncate">
+              {progress.message}
             </span>
           )}
         </div>
@@ -40,26 +42,22 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
             size="sm"
             variant="ghost"
             onClick={onCancel}
-            leftIcon={<XCircle className="w-3.5 h-3.5 text-text-muted" />}
-            className="text-xs text-text-muted hover:text-status-error"
+            leftIcon={<XCircle className="w-4 h-4 text-text-muted" />}
+            className="text-text-muted hover:text-status-error shrink-0"
           >
             Cancel
           </Button>
         )}
       </div>
 
-      <div className="h-2 w-full bg-surface-subtle rounded-full overflow-hidden relative shadow-inner">
+      <div className="h-2 w-full bg-surface-subtle border border-surface-border rounded-control overflow-hidden">
         <div
-          className="h-full bg-accent transition-all duration-300 ease-out rounded-full relative overflow-hidden"
+          className="h-full bg-accent transition-[width] duration-base ease-out"
           style={{ width: `${percentage}%` }}
-        >
-          {percentage < 100 && (
-            <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer" />
-          )}
-        </div>
+        />
       </div>
 
-      <div className="flex justify-between items-center text-[11px] text-text-faint font-mono">
+      <div className="flex justify-between items-center text-xs text-text-muted font-mono">
         <span>
           {typeof progress.current === 'number'
             ? `${

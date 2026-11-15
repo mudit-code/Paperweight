@@ -508,6 +508,36 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
     }
   };
 
+  // Determine if there are genuine unsaved edits to prompt discard confirmation for
+  const hasChanges = Boolean(
+    !initialScan ||
+    canUndo ||
+    historyIndexRef.current > 0 ||
+    (initialScan && docName.trim() !== initialScan.title.trim())
+  );
+
+  const handleBack = useCallback(() => {
+    if (activeTool !== 'none') {
+      if (activeTool === 'resize' && resizeBackupPage) {
+        setPages((prev) => {
+          const next = [...prev];
+          next[activeIndex] = resizeBackupPage;
+          return next;
+        });
+        setResizeBackupPage(null);
+      }
+      setActiveTool('none');
+      return;
+    }
+
+    // Only prompt discard confirmation if there are genuine unsaved changes
+    if (hasChanges) {
+      setShowDiscardConfirm(true);
+    } else {
+      onClose();
+    }
+  }, [activeTool, resizeBackupPage, activeIndex, hasChanges, onClose]);
+
   // Hardware Back Button & Gesture Navigation Interception
   useEffect(() => {
     const handleHardwareBack = (e: Event) => {
@@ -527,7 +557,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
           setResizeBackupPage(null);
         }
         setActiveTool('none');
-      } else if (pages.length > 0) {
+      } else if (hasChanges) {
         setShowDiscardConfirm(true);
       } else {
         onClose();
@@ -536,7 +566,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
 
     window.addEventListener('hardwareBackPress', handleHardwareBack);
     return () => window.removeEventListener('hardwareBackPress', handleHardwareBack);
-  }, [isOpen, showDiscardConfirm, showDeleteConfirm, activeTool, pages.length, onClose]);
+  }, [isOpen, showDiscardConfirm, showDeleteConfirm, activeTool, pages.length, hasChanges, resizeBackupPage, activeIndex, onClose]);
 
   // Initialize pages when opened
   useEffect(() => {
@@ -1267,14 +1297,14 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
   if (!isOpen || pages.length === 0) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 bg-surface-bg text-text-main flex flex-col justify-between overflow-hidden select-none animate-in fade-in">
+    <div className="fixed inset-0 z-50 bg-surface-bg text-text-main flex flex-col justify-between overflow-hidden select-none">
       {/* 1. TOP HEADER (Theme-aligned with safe-area status bar spacing) */}
-      <div className="relative z-30 px-4 py-3 pt-[max(0.75rem,var(--safe-area-top))] pl-[max(1rem,var(--safe-area-left))] pr-[max(1rem,var(--safe-area-right))] flex items-center justify-between border-b border-surface-border bg-surface-panel text-text-main shrink-0 transition-[padding] duration-150">
-        {/* Back Arrow with Discard Confirmation */}
+      <div className="relative z-30 px-3 sm:px-4 py-2 pt-[max(0.5rem,var(--safe-area-top))] pl-[max(0.75rem,var(--safe-area-left))] pr-[max(0.75rem,var(--safe-area-right))] flex items-center justify-between border-b border-surface-border bg-surface-panel text-text-main shrink-0">
+        {/* Back Arrow with Discard Confirmation (only if changes exist) */}
         <button
           type="button"
-          onClick={() => setShowDiscardConfirm(true)}
-          className="p-1.5 rounded-full hover:bg-surface-subtle text-text-main active:scale-95 transition-colors cursor-pointer"
+          onClick={handleBack}
+          className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover text-text-main transition-colors cursor-pointer"
           aria-label="Back"
           title="Back"
         >
@@ -1282,7 +1312,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
         </button>
 
         {/* Editable Document Title */}
-        <div className="flex items-center gap-1.5 max-w-[220px] sm:max-w-md">
+        <div className="flex items-center gap-1.5 max-w-[200px] sm:max-w-md min-w-0">
           {isEditingName ? (
             <input
               type="text"
@@ -1291,13 +1321,13 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
               onBlur={() => setIsEditingName(false)}
               onKeyDown={(e) => e.key === 'Enter' && setIsEditingName(false)}
               onChange={(e) => setDocName(e.target.value)}
-              className="bg-surface-subtle text-text-main font-semibold text-sm px-2.5 py-1 rounded-md border border-accent focus:outline-none w-full"
+              className="bg-surface-subtle text-text-main font-semibold text-sm px-2.5 min-h-[44px] rounded-control border border-accent focus:outline-none w-full"
             />
           ) : (
             <button
               type="button"
               onClick={() => setIsEditingName(true)}
-              className="flex items-center gap-1.5 text-sm font-semibold truncate hover:text-accent cursor-pointer text-text-main"
+              className="min-h-[44px] px-2 rounded-control flex items-center gap-1.5 text-sm font-semibold truncate hover:bg-surface-hover cursor-pointer text-text-main"
               title="Click to rename document"
             >
               <span className="truncate">{docName}</span>
@@ -1307,11 +1337,11 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
         </div>
 
         {/* Right Action: Share with Caption */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 shrink-0">
           <button
             type="button"
             onClick={handleShareDoc}
-            className="p-2 rounded-full hover:bg-surface-subtle text-text-main active:scale-95 transition-colors cursor-pointer"
+            className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover text-text-main transition-colors cursor-pointer"
             aria-label="Share document"
             title="Share with caption"
           >
@@ -1320,47 +1350,47 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
         </div>
       </div>
 
-      {/* 2. CENTER PREVIEW AREA & PAGE VIEWER (With Smooth Gallery Carousel Drag) */}
-      <div className="relative flex-1 min-h-0 w-full flex flex-col items-center justify-between overflow-hidden bg-[#E2E4E8] dark:bg-[#121214] transition-colors duration-150">
-        {/* Page Indicator Bar - Undo & Redo ONLY shown in main menu (when no dedicated tool is active) */}
-        <div className="w-full flex items-center justify-between px-4 py-2 shrink-0 select-none">
+      {/* 2. CENTER PREVIEW AREA & PAGE VIEWER */}
+      <div className="relative flex-1 min-h-0 w-full flex flex-col items-center justify-between overflow-hidden bg-surface-bg transition-colors duration-150">
+        {/* Page Indicator Bar */}
+        <div className="w-full flex items-center justify-between px-3 sm:px-4 py-1.5 shrink-0 select-none">
           {activeTool === 'none' ? (
             <button
               type="button"
               onClick={handleUndo}
               disabled={!canUndo}
               style={{ touchAction: 'manipulation' }}
-              className="p-1.5 rounded-full hover:bg-surface-subtle text-text-main disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer transition-colors active:scale-95 touch-manipulation"
+              className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover text-text-main disabled:text-text-disabled disabled:cursor-not-allowed cursor-pointer transition-colors touch-manipulation"
               aria-label="Undo"
               title="Undo"
             >
               <Undo2 className="w-4 h-4" />
             </button>
           ) : (
-            <div className="w-7 h-7" />
+            <div className="w-11 h-11" />
           )}
 
           {pages.length > 1 ? (
-            <div className="flex items-center gap-3 text-xs text-text-muted">
+            <div className="flex items-center gap-2 text-xs text-text-muted">
               <button
                 type="button"
                 onClick={() => setActiveIndex((prev) => Math.max(0, prev - 1))}
                 disabled={activeIndex === 0}
                 style={{ touchAction: 'manipulation' }}
-                className="p-1 rounded-full hover:bg-surface-subtle hover:text-text-main disabled:opacity-20 cursor-pointer transition-colors touch-manipulation"
+                className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover hover:text-text-main disabled:text-text-disabled cursor-pointer transition-colors touch-manipulation"
                 aria-label="Previous page"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <span className="font-mono text-xs">
-                Page <span className="font-bold text-text-main">{activeIndex + 1}</span> of {pages.length}
+                Page <span className="font-bold text-text-main">{activeIndex + 1}</span> / {pages.length}
               </span>
               <button
                 type="button"
                 onClick={() => setActiveIndex((prev) => Math.min(pages.length - 1, prev + 1))}
                 disabled={activeIndex === pages.length - 1}
                 style={{ touchAction: 'manipulation' }}
-                className="p-1 rounded-full hover:bg-surface-subtle hover:text-text-main disabled:opacity-20 cursor-pointer transition-colors touch-manipulation"
+                className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover hover:text-text-main disabled:text-text-disabled cursor-pointer transition-colors touch-manipulation"
                 aria-label="Next page"
               >
                 <ChevronRight className="w-4 h-4" />
@@ -1378,14 +1408,14 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
               onClick={handleRedo}
               disabled={!canRedo}
               style={{ touchAction: 'manipulation' }}
-              className="p-1.5 rounded-full hover:bg-surface-subtle text-text-main disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer transition-colors active:scale-95 touch-manipulation"
+              className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover text-text-main disabled:text-text-disabled disabled:cursor-not-allowed cursor-pointer transition-colors touch-manipulation"
               aria-label="Redo"
               title="Redo"
             >
               <Redo2 className="w-4 h-4" />
             </button>
           ) : (
-            <div className="w-7 h-7" />
+            <div className="w-11 h-11" />
           )}
         </div>
 
@@ -1437,7 +1467,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                   {/* Visible processing overlay (for Rotate, Filters, Resize, Adjustments) */}
                   {idx === activeIndex && (isRotating || isProcessing) && (
                     <div className="absolute inset-0 bg-black/20 backdrop-blur-[1px] flex items-center justify-center z-30 pointer-events-none animate-in fade-in duration-100">
-                      <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-surface-panel/95 text-text-main shadow-lg border border-surface-border text-xs font-semibold">
+                      <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-surface-panel text-text-main shadow-lg border border-surface-border text-xs font-semibold">
                         <RotateCw className="w-3.5 h-3.5 animate-spin text-accent" />
                         <span>{isRotating ? 'Rotating…' : 'Applying…'}</span>
                       </div>
@@ -1533,7 +1563,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                             fillRule="evenodd"
                           />
 
-                          {/* Accent Quad Polygon matching Paperweight logo */}
+                          {/* Accent Quad Polygon */}
                           <polygon
                             points={`
                               ${cropCorners.topLeft.x * 100},${cropCorners.topLeft.y * 100}
@@ -1541,14 +1571,14 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                               ${cropCorners.bottomRight.x * 100},${cropCorners.bottomRight.y * 100}
                               ${cropCorners.bottomLeft.x * 100},${cropCorners.bottomLeft.y * 100}
                             `}
-                            fill="rgba(217, 119, 6, 0.12)"
-                            stroke="#d97706"
+                            fill="rgba(242, 209, 75, 0.14)"
+                            stroke="var(--accent)"
                             strokeWidth="2.5"
                             vectorEffect="non-scaling-stroke"
                           />
                         </svg>
 
-                        {/* 4 Edge Midpoint Pill Handles (Logo Accent style) */}
+                        {/* 4 Edge Midpoint Pill Handles */}
                         {[
                           { key: 'edge-top' as const, point: midTop, angle: angleTop, label: 'Top Edge' },
                           { key: 'edge-bottom' as const, point: midBottom, angle: angleBottom, label: 'Bottom Edge' },
@@ -1569,14 +1599,14 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                             className="absolute w-11 h-11 flex items-center justify-center cursor-move touch-none z-30"
                           >
                             <div
-                              className={`w-7 h-2.5 rounded-full border-[2px] border-[#d97706] bg-white dark:bg-stone-900 shadow-md transition-transform ${
-                                draggingHandle === key ? 'scale-125 ring-2 ring-orange-500/50' : 'hover:scale-110 active:scale-125'
+                              className={`w-7 h-2.5 rounded-chip border-[2px] border-accent bg-surface-panel shadow-lifted transition-transform ${
+                                draggingHandle === key ? 'scale-125 ring-2 ring-accent' : 'hover:scale-110'
                               }`}
                             />
                           </div>
                         ))}
 
-                        {/* 4 Circular Corner Handles (Logo Accent style) */}
+                        {/* 4 Corner Handles */}
                         {[
                           { key: 'tl' as const, point: cropCorners.topLeft, label: 'Top Left Corner' },
                           { key: 'tr' as const, point: cropCorners.topRight, label: 'Top Right Corner' },
@@ -1596,18 +1626,18 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                             className="absolute -translate-x-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center cursor-move touch-none z-30"
                           >
                             <div
-                              className={`w-7 h-7 rounded-full border-[2.5px] border-[#d97706] bg-orange-500/20 backdrop-blur-[1px] shadow-lg flex items-center justify-center transition-transform ${
+                              className={`w-7 h-7 rounded-full border-[2.5px] border-accent bg-surface-panel opacity-90 shadow-lifted flex items-center justify-center transition-transform ${
                                 draggingHandle === key
-                                  ? 'scale-125 ring-4 ring-orange-500/40 bg-orange-500/30'
-                                  : 'hover:scale-110 active:scale-125'
+                                  ? 'scale-125 ring-4 ring-accent bg-accent'
+                                  : 'hover:scale-110'
                               }`}
                             >
-                              <div className="w-1.5 h-1.5 rounded-full bg-white shadow-sm" />
+                              <div className="w-1.5 h-1.5 rounded-full bg-surface-panel" />
                             </div>
                           </div>
                         ))}
 
-                        {/* Floating Magnifying Loupe with Crosshair Reticle (Logo Accent style) */}
+                        {/* Floating Magnifying Loupe with Crosshair Reticle */}
                         {activeTargetPoint && (
                           <div
                             style={{
@@ -1617,7 +1647,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                               height: `${loupeSize}px`,
                               transform: 'translate(-50%, -50%)',
                             }}
-                            className="absolute rounded-full overflow-hidden border-[2.5px] border-[#d97706] shadow-2xl bg-neutral-900 pointer-events-none z-40 animate-in fade-in duration-100"
+                            className="absolute rounded-full overflow-hidden border-[2.5px] border-accent shadow-lifted bg-surface-bg pointer-events-none z-40"
                           >
                             {/* 2.2x Zoomed Image Section */}
                             <img
@@ -1632,9 +1662,9 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                             />
 
                             {/* Full-width and full-height Reticle Crosshairs */}
-                            <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[1.5px] bg-[#d97706] opacity-90 shadow-sm" />
-                            <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-[1.5px] bg-[#d97706] opacity-90 shadow-sm" />
-                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border border-[#d97706] opacity-75" />
+                            <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[1.5px] bg-accent opacity-90" />
+                            <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-[1.5px] bg-accent opacity-90" />
+                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border border-accent opacity-75" />
                           </div>
                         )}
                       </div>
@@ -1737,13 +1767,13 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                     className="relative flex flex-col items-center cursor-grab active:cursor-grabbing select-none touch-none"
                   >
                     <div
-                      className={`w-full aspect-[1/1.414] bg-white rounded-none overflow-hidden shadow-md border transition-all duration-150 flex items-center justify-center ${
+                      className={`w-full aspect-[1/1.414] bg-white rounded-none overflow-hidden border transition-colors flex items-center justify-center ${
                         isBeingDragged
-                          ? 'opacity-30 scale-95 border-dashed border-2 border-accent/60 ring-2 ring-accent/20'
+                          ? 'opacity-40 border-2 border-accent shadow-lifted'
                           : isDragTarget && draggedPageIndex !== null && draggedPageIndex !== idx
-                          ? 'border-accent ring-4 ring-accent scale-105 shadow-2xl z-20 bg-accent/10'
+                          ? 'border-accent ring-2 ring-accent shadow-lifted z-20'
                           : isSelectedForSwap
-                          ? 'scale-105 ring-2 ring-accent border-accent shadow-xl'
+                          ? 'ring-2 ring-accent border-accent shadow-lifted'
                           : 'border-surface-border'
                       }`}
                     >
@@ -1760,8 +1790,8 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
 
                     {/* Prominent visual badge indicating where the dropped page will land */}
                     {isDragTarget && draggedPageIndex !== null && draggedPageIndex !== idx && (
-                      <div className="absolute -top-2.5 px-2 py-0.5 rounded-full bg-accent text-white text-[10px] font-bold shadow-md animate-in zoom-in-95 pointer-events-none">
-                        Drop to #{idx + 1}
+                      <div className="absolute -top-2.5 px-2.5 py-0.5 rounded-chip bg-accent text-accent-contrast text-xs font-mono font-semibold shadow-lifted pointer-events-none">
+                        Drop #{idx + 1}
                       </div>
                     )}
                   </div>
@@ -1772,16 +1802,16 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
         </div>
       )}
 
-      {/* 3. TOOL SUB-PANELS (Theme-adaptive styling) */}
+      {/* 3. TOOL SUB-PANELS */}
       {activeTool !== 'none' && activeTool !== 'reorder' && (
-        <div className="relative z-30 bg-surface-panel border-t border-surface-border px-4 py-3 animate-in slide-in-from-bottom duration-150 text-text-main">
-          {/* A. CROP SUB-PANEL: Small undo icon on left, Rotate in middle, Done button on right */}
+        <div className="relative z-30 bg-surface-panel border-t border-surface-border px-4 py-3 text-text-main">
+          {/* A. CROP SUB-PANEL */}
           {activeTool === 'crop' && (
             <div className="flex items-center justify-between max-w-md mx-auto px-2 py-0.5">
               <button
                 type="button"
                 onClick={handleResetCrop}
-                className="p-2 rounded-xl hover:bg-surface-subtle text-text-muted hover:text-text-main cursor-pointer active:scale-90 transition-all border border-surface-border shadow-2xs"
+                className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover text-text-muted hover:text-text-main cursor-pointer transition-colors border border-surface-border"
                 title="Undo / Reset crop"
                 aria-label="Undo / Reset crop"
               >
@@ -1793,18 +1823,18 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                 type="button"
                 onClick={handleRotate}
                 disabled={isRotating}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-surface-subtle hover:bg-surface-subtle/80 text-text-main text-xs font-semibold border border-surface-border cursor-pointer active:scale-95 transition-all shadow-2xs disabled:opacity-50"
+                className="min-h-[44px] flex items-center gap-1.5 px-4 rounded-control bg-surface-subtle hover:bg-surface-hover text-text-main text-xs font-semibold border border-surface-border cursor-pointer transition-colors disabled:opacity-50"
                 title="Rotate page 90° Clockwise"
                 aria-label="Rotate page 90° Clockwise"
               >
-                <RotateCw className={`w-3.5 h-3.5 ${isRotating ? 'animate-spin text-accent' : ''}`} />
+                <RotateCw className={`w-4 h-4 ${isRotating ? 'animate-spin text-accent' : ''}`} />
                 <span>{isRotating ? 'Rotating…' : 'Rotate'}</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleApplyCrop}
-                className="px-6 py-2 rounded-xl bg-accent hover:bg-accent-hover text-xs font-bold text-white shadow-sm cursor-pointer active:scale-95 transition-transform"
+                className="min-h-[44px] px-5 rounded-control bg-accent hover:bg-accent-hover text-xs font-semibold text-accent-contrast cursor-pointer transition-colors"
               >
                 Done
               </button>
@@ -1820,7 +1850,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                   type="button"
                   onClick={() => setActiveTool('none')}
                   style={{ touchAction: 'manipulation' }}
-                  className="text-xs text-accent font-semibold cursor-pointer active:scale-95 touch-manipulation px-2 py-0.5"
+                  className="min-h-[36px] text-xs text-text-main hover:text-accent font-semibold cursor-pointer touch-manipulation px-2.5 rounded-control"
                 >
                   Done
                 </button>
@@ -1828,20 +1858,20 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
               <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
                 {[
                   { id: 'original', label: 'Original' },
-                  { id: 'color', label: 'Color Doc' },
-                  { id: 'bw', label: 'Magic B&W' },
-                  { id: 'grayscale', label: 'Grayscale' },
-                  { id: 'light_text', label: 'Light Text' },
+                  { id: 'color', label: 'Color' },
+                  { id: 'bw', label: 'B&W' },
+                  { id: 'grayscale', label: 'Gray' },
+                  { id: 'light_text', label: 'Light' },
                 ].map((f) => (
                   <button
                     key={f.id}
                     type="button"
                     onClick={() => handleSelectFilter(f.id as DocumentFilterType)}
                     style={{ touchAction: 'manipulation' }}
-                    className={`py-2 px-0.5 rounded-xl text-[11px] sm:text-xs font-medium border text-center transition-all cursor-pointer active:scale-95 touch-manipulation ${
+                    className={`min-h-[44px] px-1 rounded-control text-xs font-medium border text-center transition-colors cursor-pointer touch-manipulation ${
                       activePage?.filter === f.id
-                        ? 'bg-accent text-white border-accent shadow-xs'
-                        : 'bg-surface-subtle border-surface-border text-text-main hover:bg-surface-panel'
+                        ? 'bg-accent text-accent-contrast border-accent font-semibold'
+                        : 'bg-surface-subtle border-surface-border text-text-main hover:bg-surface-hover'
                     }`}
                   >
                     {f.label}
@@ -1860,14 +1890,14 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setAdjustments({ brightness: 0, contrast: 0 })}
-                    className="text-xs text-text-muted hover:text-text-main cursor-pointer"
+                    className="min-h-[36px] px-2.5 text-xs text-text-muted hover:text-text-main cursor-pointer rounded-control"
                   >
                     Reset
                   </button>
                   <button
                     type="button"
                     onClick={handleApplyAdjustments}
-                    className="px-3 py-1 rounded-lg bg-accent text-xs font-semibold text-white cursor-pointer shadow-xs"
+                    className="min-h-[36px] px-3.5 rounded-control bg-accent hover:bg-accent-hover text-xs font-semibold text-accent-contrast cursor-pointer"
                   >
                     Done
                   </button>
@@ -1919,7 +1949,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                   <button
                     type="button"
                     onClick={handleCleanupUndo}
-                    className="text-xs px-2 py-0.5 rounded bg-surface-subtle hover:bg-surface-panel border border-surface-border text-text-muted hover:text-text-main cursor-pointer"
+                    className="min-h-[36px] text-xs px-2.5 rounded-control bg-surface-subtle hover:bg-surface-hover border border-surface-border text-text-muted hover:text-text-main cursor-pointer"
                   >
                     Undo
                   </button>
@@ -1928,14 +1958,14 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setActiveTool('none')}
-                    className="text-xs text-text-muted hover:text-text-main cursor-pointer"
+                    className="min-h-[36px] px-2.5 text-xs text-text-muted hover:text-text-main cursor-pointer rounded-control"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={handleApplyCleanup}
-                    className="px-3 py-1 rounded-lg bg-accent text-xs font-semibold text-white shadow-xs cursor-pointer"
+                    className="min-h-[36px] px-3.5 rounded-control bg-accent hover:bg-accent-hover text-xs font-semibold text-accent-contrast cursor-pointer"
                   >
                     Apply
                   </button>
@@ -1944,7 +1974,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
 
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2 flex-1">
-                  <span className="text-[11px] text-text-muted font-medium">Size</span>
+                  <span className="text-xs text-text-muted font-medium">Size</span>
                   <input
                     type="range"
                     min="6"
@@ -1953,18 +1983,18 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                     onChange={(e) => setBrushSize(Number(e.target.value))}
                     className="flex-1 accent-accent"
                   />
-                  <span className="text-[11px] font-mono text-text-muted">{brushSize}px</span>
+                  <span className="text-xs font-mono text-text-muted">{brushSize}px</span>
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {['#FFFFFF', '#FFFDF8', '#F3EBDD', '#E5E7EB'].map((c) => (
+                  {['#FFFFFF', '#F7F5EF', '#E9E8E4', '#1F1F22'].map((c) => (
                     <button
                       key={c}
                       type="button"
                       onClick={() => setCleanupColor(c)}
                       style={{ backgroundColor: c }}
-                      className={`w-6 h-6 rounded-full border cursor-pointer ${
-                        cleanupColor === c ? 'ring-2 ring-accent scale-110' : 'border-surface-border'
+                      className={`w-7 h-7 rounded-control border cursor-pointer ${
+                        cleanupColor === c ? 'ring-2 ring-accent border-accent' : 'border-surface-border'
                       }`}
                       title={c}
                     />
@@ -1972,21 +2002,22 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsEyedropperActive(!isEyedropperActive)}
-                    className={`p-1.5 rounded-full border transition-colors cursor-pointer ${
+                    className={`min-w-[36px] min-h-[36px] inline-flex items-center justify-center rounded-control border transition-colors cursor-pointer ${
                       isEyedropperActive
-                        ? 'bg-accent border-accent text-white'
+                        ? 'bg-accent border-accent text-accent-contrast'
                         : 'bg-surface-subtle border-surface-border text-text-muted hover:text-text-main'
                     }`}
                     title="Pick color from document"
+                    aria-label="Pick color from document"
                   >
-                    <Pipette className="w-3.5 h-3.5" />
+                    <Pipette className="w-4 h-4" />
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* E. RESIZE / FORMAT SUB-PANEL (Live Preview with Confirm/Cancel) */}
+          {/* E. RESIZE / FORMAT SUB-PANEL */}
           {activeTool === 'resize' && (
             <div className="space-y-3 max-w-md mx-auto">
               <div className="flex items-center justify-between">
@@ -1996,7 +2027,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                     type="button"
                     onClick={handleCancelResize}
                     style={{ touchAction: 'manipulation' }}
-                    className="px-2.5 py-1 rounded-md text-xs text-text-muted hover:text-text-main hover:bg-surface-subtle cursor-pointer transition-colors active:scale-95 touch-manipulation"
+                    className="min-h-[36px] px-2.5 rounded-control text-xs text-text-muted hover:text-text-main hover:bg-surface-hover cursor-pointer transition-colors touch-manipulation"
                   >
                     Cancel
                   </button>
@@ -2004,7 +2035,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                     type="button"
                     onClick={handleDoneResize}
                     style={{ touchAction: 'manipulation' }}
-                    className="px-3.5 py-1 rounded-md bg-accent text-xs font-semibold text-white cursor-pointer shadow-xs active:scale-95 transition-all touch-manipulation"
+                    className="min-h-[36px] px-3.5 rounded-control bg-accent hover:bg-accent-hover text-xs font-semibold text-accent-contrast cursor-pointer transition-colors touch-manipulation"
                   >
                     Done
                   </button>
@@ -2012,7 +2043,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
               </div>
               <div className="grid grid-cols-4 gap-2">
                 {[
-                  { id: 'fit', label: 'Fit / Auto' },
+                  { id: 'fit', label: 'Fit' },
                   { id: 'a4', label: 'A4' },
                   { id: 'letter', label: 'Letter' },
                   { id: 'a5', label: 'A5' },
@@ -2022,10 +2053,10 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                     type="button"
                     onClick={() => handleSelectFormatPreset(fmt.id as PageFormatType)}
                     style={{ touchAction: 'manipulation' }}
-                    className={`py-2 px-1 rounded-xl text-xs font-medium border text-center transition-all cursor-pointer active:scale-95 touch-manipulation ${
+                    className={`min-h-[44px] px-1 rounded-control text-xs font-medium border text-center transition-colors cursor-pointer touch-manipulation ${
                       selectedFormat === fmt.id
-                        ? 'bg-accent text-white border-accent shadow-xs'
-                        : 'bg-surface-subtle border-surface-border text-text-main hover:bg-surface-panel'
+                        ? 'bg-accent text-accent-contrast border-accent font-semibold'
+                        : 'bg-surface-subtle border-surface-border text-text-main hover:bg-surface-hover'
                     }`}
                   >
                     {fmt.label}
@@ -2037,20 +2068,20 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
         </div>
       )}
 
-      {/* 4. SCROLLABLE BOTTOM TOOLBAR (Theme-aligned for both Light & Dark modes) */}
-      <div className="relative z-30 bg-surface-panel border-t border-surface-border px-3 py-2.5 overflow-x-auto no-scrollbar shrink-0 text-text-main">
-        <div className="flex items-center justify-between gap-5 min-w-max px-2">
+      {/* 4. SCROLLABLE BOTTOM TOOLBAR */}
+      <div className="relative z-30 bg-surface-panel border-t border-surface-border px-3 py-2 overflow-x-auto no-scrollbar shrink-0 text-text-main">
+        <div className="flex items-center justify-between gap-4 min-w-max px-2">
           {/* 1. Crop */}
           <button
             type="button"
             onClick={() => setActiveTool((prev) => (prev === 'crop' ? 'none' : 'crop'))}
             style={{ touchAction: 'manipulation' }}
-            className={`flex flex-col items-center gap-1 min-w-[50px] cursor-pointer transition-colors active:scale-95 touch-manipulation ${
+            className={`min-w-[52px] min-h-[44px] flex flex-col items-center justify-center gap-1 rounded-control cursor-pointer transition-colors touch-manipulation ${
               activeTool === 'crop' ? 'text-accent font-semibold' : 'text-text-muted hover:text-text-main'
             }`}
           >
             <CropIcon className="w-5 h-5" />
-            <span className="text-[11px] font-medium">Crop</span>
+            <span className="text-xs font-medium">Crop</span>
           </button>
 
           {/* 2. Retake / Replace */}
@@ -2058,24 +2089,24 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
             type="button"
             onClick={handleTriggerReplace}
             style={{ touchAction: 'manipulation' }}
-            className="flex flex-col items-center gap-1 min-w-[50px] text-text-muted hover:text-text-main cursor-pointer transition-colors active:scale-95 touch-manipulation"
+            className="min-w-[52px] min-h-[44px] flex flex-col items-center justify-center gap-1 rounded-control text-text-muted hover:text-text-main cursor-pointer transition-colors touch-manipulation"
           >
             {isMobile ? <RotateCcw className="w-5 h-5" /> : <FolderPlus className="w-5 h-5" />}
-            <span className="text-[11px] font-medium">{isMobile ? 'Retake' : 'Replace'}</span>
+            <span className="text-xs font-medium">{isMobile ? 'Retake' : 'Replace'}</span>
           </button>
 
-          {/* 3. Rotate (Instant feedback & works both in gallery & inside cropper) */}
+          {/* 3. Rotate */}
           <button
             type="button"
             onClick={handleRotate}
             disabled={isRotating}
             style={{ touchAction: 'manipulation' }}
-            className={`flex flex-col items-center gap-1 min-w-[50px] cursor-pointer transition-colors active:scale-95 duration-150 touch-manipulation disabled:pointer-events-none ${
+            className={`min-w-[52px] min-h-[44px] flex flex-col items-center justify-center gap-1 rounded-control cursor-pointer transition-colors touch-manipulation disabled:pointer-events-none ${
               isRotating ? 'text-accent font-semibold' : 'text-text-muted hover:text-text-main'
             }`}
           >
-            <RotateCw className={`w-5 h-5 transition-transform duration-300 ${isRotating ? 'animate-spin text-accent' : ''}`} />
-            <span className="text-[11px] font-medium">{isRotating ? 'Rotating…' : 'Rotate'}</span>
+            <RotateCw className={`w-5 h-5 ${isRotating ? 'animate-spin text-accent' : ''}`} />
+            <span className="text-xs font-medium">{isRotating ? 'Rotating' : 'Rotate'}</span>
           </button>
 
           {/* 4. Filters */}
@@ -2083,12 +2114,12 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
             type="button"
             onClick={() => setActiveTool((prev) => (prev === 'filters' ? 'none' : 'filters'))}
             style={{ touchAction: 'manipulation' }}
-            className={`flex flex-col items-center gap-1 min-w-[50px] cursor-pointer transition-colors active:scale-95 touch-manipulation ${
+            className={`min-w-[52px] min-h-[44px] flex flex-col items-center justify-center gap-1 rounded-control cursor-pointer transition-colors touch-manipulation ${
               activeTool === 'filters' ? 'text-accent font-semibold' : 'text-text-muted hover:text-text-main'
             }`}
           >
             <Sparkles className="w-5 h-5" />
-            <span className="text-[11px] font-medium">Filters</span>
+            <span className="text-xs font-medium">Filters</span>
           </button>
 
           {/* 5. Adjust */}
@@ -2096,12 +2127,12 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
             type="button"
             onClick={() => setActiveTool((prev) => (prev === 'adjust' ? 'none' : 'adjust'))}
             style={{ touchAction: 'manipulation' }}
-            className={`flex flex-col items-center gap-1 min-w-[50px] cursor-pointer transition-colors active:scale-95 touch-manipulation ${
+            className={`min-w-[52px] min-h-[44px] flex flex-col items-center justify-center gap-1 rounded-control cursor-pointer transition-colors touch-manipulation ${
               activeTool === 'adjust' ? 'text-accent font-semibold' : 'text-text-muted hover:text-text-main'
             }`}
           >
             <Sliders className="w-5 h-5" />
-            <span className="text-[11px] font-medium">Adjust</span>
+            <span className="text-xs font-medium">Adjust</span>
           </button>
 
           {/* 6. Cleanup */}
@@ -2109,12 +2140,12 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
             type="button"
             onClick={() => setActiveTool((prev) => (prev === 'cleanup' ? 'none' : 'cleanup'))}
             style={{ touchAction: 'manipulation' }}
-            className={`flex flex-col items-center gap-1 min-w-[50px] cursor-pointer transition-colors active:scale-95 touch-manipulation ${
+            className={`min-w-[52px] min-h-[44px] flex flex-col items-center justify-center gap-1 rounded-control cursor-pointer transition-colors touch-manipulation ${
               activeTool === 'cleanup' ? 'text-accent font-semibold' : 'text-text-muted hover:text-text-main'
             }`}
           >
             <Eraser className="w-5 h-5" />
-            <span className="text-[11px] font-medium">Cleanup</span>
+            <span className="text-xs font-medium">Cleanup</span>
           </button>
 
           {/* 7. Reorder */}
@@ -2122,12 +2153,12 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
             type="button"
             onClick={() => setActiveTool((prev) => (prev === 'reorder' ? 'none' : 'reorder'))}
             style={{ touchAction: 'manipulation' }}
-            className={`flex flex-col items-center gap-1 min-w-[50px] cursor-pointer transition-colors active:scale-95 touch-manipulation ${
+            className={`min-w-[52px] min-h-[44px] flex flex-col items-center justify-center gap-1 rounded-control cursor-pointer transition-colors touch-manipulation ${
               activeTool === 'reorder' ? 'text-accent font-semibold' : 'text-text-muted hover:text-text-main'
             }`}
           >
             <Layers className="w-5 h-5" />
-            <span className="text-[11px] font-medium">Reorder</span>
+            <span className="text-xs font-medium">Reorder</span>
           </button>
 
           {/* 8. Resize */}
@@ -2145,12 +2176,12 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
               }
             }}
             style={{ touchAction: 'manipulation' }}
-            className={`flex flex-col items-center gap-1 min-w-[50px] cursor-pointer transition-colors active:scale-95 touch-manipulation ${
+            className={`min-w-[52px] min-h-[44px] flex flex-col items-center justify-center gap-1 rounded-control cursor-pointer transition-colors touch-manipulation ${
               activeTool === 'resize' ? 'text-accent font-semibold' : 'text-text-muted hover:text-text-main'
             }`}
           >
             <Maximize2 className="w-5 h-5" />
-            <span className="text-[11px] font-medium">Resize</span>
+            <span className="text-xs font-medium">Resize</span>
           </button>
 
           {/* 9. Delete with Confirmation Card */}
@@ -2158,31 +2189,31 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
             type="button"
             onClick={() => setShowDeleteConfirm(true)}
             style={{ touchAction: 'manipulation' }}
-            className="flex flex-col items-center gap-1 min-w-[50px] text-status-error hover:opacity-80 cursor-pointer transition-colors active:scale-95 touch-manipulation"
+            className="min-w-[52px] min-h-[44px] flex flex-col items-center justify-center gap-1 rounded-control text-status-error hover:bg-status-error-bg cursor-pointer transition-colors touch-manipulation"
             title="Delete this page"
           >
             <Trash2 className="w-5 h-5" />
-            <span className="text-[11px] font-medium">Delete</span>
+            <span className="text-xs font-medium">Delete</span>
           </button>
         </div>
       </div>
 
-      {/* 5. BOTTOM ACTION BAR (Keep scanning & Save PDF, shrink-0) */}
-      <div className="relative z-30 bg-surface-bg border-t border-surface-border px-4 py-3 pb-[max(1.25rem,var(--safe-area-bottom))] pl-[max(1rem,var(--safe-area-left))] pr-[max(1rem,var(--safe-area-right))] flex items-center justify-between gap-3 shrink-0 transition-[padding] duration-150">
+      {/* 5. BOTTOM ACTION BAR */}
+      <div className="relative z-30 bg-surface-bg border-t border-surface-border px-3 sm:px-4 py-3 pb-[max(1.25rem,var(--safe-area-bottom))] pl-[max(0.75rem,var(--safe-area-left))] pr-[max(0.75rem,var(--safe-area-right))] flex items-center justify-between gap-2 sm:gap-3 shrink-0 transition-[padding] duration-150">
         <button
           type="button"
           onClick={handleTriggerAddFiles}
-          className="flex-1 max-w-[180px] py-3 px-4 rounded-full border border-surface-border bg-surface-panel hover:bg-surface-subtle text-text-main font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-all shadow-xs"
+          className="flex-1 min-w-0 max-w-[180px] min-h-[44px] px-3 rounded-control border border-surface-border bg-surface-panel hover:bg-surface-hover text-text-main font-semibold text-xs sm:text-sm flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
         >
           {isMobile ? (
             <>
-              <Camera className="w-4 h-4 text-accent" />
-              <span>Keep scanning</span>
+              <Camera className="w-4 h-4 shrink-0" />
+              <span className="truncate">Keep scanning</span>
             </>
           ) : (
             <>
-              <FolderPlus className="w-4 h-4 text-accent" />
-              <span>Add Files</span>
+              <FolderPlus className="w-4 h-4 shrink-0" />
+              <span className="truncate">Add Files</span>
             </>
           )}
         </button>
@@ -2191,23 +2222,27 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
           type="button"
           onClick={handleSavePdf}
           disabled={isProcessing}
-          className="flex-1 py-3 px-6 rounded-full bg-accent hover:bg-accent-hover text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+          className="flex-1 min-w-0 min-h-[44px] px-4 rounded-control bg-accent hover:bg-accent-hover text-accent-contrast font-semibold text-xs sm:text-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:bg-surface-disabled disabled:text-text-disabled"
         >
-          <FileDown className="w-4 h-4" />
-          <span>Save PDF</span>
+          <FileDown className="w-4 h-4 shrink-0" />
+          <span className="truncate">Save PDF</span>
         </button>
       </div>
 
       {/* DISCARD SCAN CONFIRMATION WARNING MODAL */}
       {showDiscardConfirm && (
-        <div className="fixed inset-0 z-60 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="w-full max-w-sm rounded-2xl bg-surface-panel border border-surface-border p-5 shadow-2xl text-center space-y-4">
+        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-sm rounded-sheet bg-surface-panel border border-surface-border p-5 shadow-lifted text-center space-y-4"
+          >
             <div className="space-y-1.5">
-              <h3 className="font-serif font-bold text-base sm:text-lg text-text-main">
-                Are you sure to discard the scan?
+              <h3 className="font-semibold text-md text-text-main">
+                Discard scan?
               </h3>
-              <p className="text-xs text-text-muted">
-                Any unsaved changes and pages will be discarded.
+              <p className="text-sm text-text-muted">
+                Unsaved changes and pages will be discarded.
               </p>
             </div>
 
@@ -2215,7 +2250,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowDiscardConfirm(false)}
-                className="flex-1 py-2.5 px-4 rounded-xl border border-surface-border bg-surface-subtle hover:bg-surface-panel text-text-main font-semibold text-xs transition-colors cursor-pointer active:scale-95"
+                className="flex-1 min-h-[44px] px-4 rounded-control border border-surface-border bg-surface-subtle hover:bg-surface-hover text-text-main font-semibold text-sm transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -2225,7 +2260,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                   setShowDiscardConfirm(false);
                   onClose();
                 }}
-                className="flex-1 py-2.5 px-4 rounded-xl bg-status-error hover:opacity-90 text-white font-semibold text-xs transition-colors cursor-pointer active:scale-95 shadow-md"
+                className="flex-1 min-h-[44px] px-4 rounded-control bg-status-error hover:opacity-90 text-white font-semibold text-sm transition-colors cursor-pointer"
               >
                 Discard
               </button>
@@ -2236,13 +2271,17 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
 
       {/* DELETE PAGE CONFIRMATION WARNING MODAL */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-60 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="w-full max-w-sm rounded-2xl bg-surface-panel border border-surface-border p-5 shadow-2xl text-center space-y-4">
+        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-sm rounded-sheet bg-surface-panel border border-surface-border p-5 shadow-lifted text-center space-y-4"
+          >
             <div className="space-y-1.5">
-              <h3 className="font-serif font-bold text-base sm:text-lg text-text-main">
-                Are you sure to delete this page?
+              <h3 className="font-semibold text-md text-text-main">
+                Delete this page?
               </h3>
-              <p className="text-xs text-text-muted">
+              <p className="text-sm text-text-muted">
                 Page {activeIndex + 1} of {pages.length} will be permanently removed.
               </p>
             </div>
@@ -2251,7 +2290,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 py-2.5 px-4 rounded-xl border border-surface-border bg-surface-subtle hover:bg-surface-panel text-text-main font-semibold text-xs transition-colors cursor-pointer active:scale-95"
+                className="flex-1 min-h-[44px] px-4 rounded-control border border-surface-border bg-surface-subtle hover:bg-surface-hover text-text-main font-semibold text-sm transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -2261,7 +2300,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                   setShowDeleteConfirm(false);
                   handleDeletePage(activeIndex);
                 }}
-                className="flex-1 py-2.5 px-4 rounded-xl bg-status-error hover:opacity-90 text-white font-semibold text-xs transition-colors cursor-pointer active:scale-95 shadow-md"
+                className="flex-1 min-h-[44px] px-4 rounded-control bg-status-error hover:opacity-90 text-white font-semibold text-sm transition-colors cursor-pointer"
               >
                 Delete
               </button>

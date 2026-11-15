@@ -6,30 +6,34 @@ import {
   Trash2,
   FileText,
   Clock,
+  Image,
+  Download,
+  Loader2,
   FolderPlus,
-  Plus,
 } from 'lucide-react';
 import { getAllScans, deleteScan, type StoredScanDoc } from '../../tools/scanner/scans-db';
 import { PDFDocument } from 'pdf-lib';
-import { shareBlob } from '../../core/processors';
-import { isMobileApp } from '../../core/processors/download';
+import { shareBlob, downloadBlob, isMobileApp } from '../../core/processors';
+import { Button } from '../ui/Button';
 
 export interface ScannedDocsHomeProps {
   onStartNewScan: () => void;
   onModifyScan: (scan: StoredScanDoc) => void;
   onAddFiles?: (files: File[]) => void;
+  onViewPdf?: (blob: Blob, name: string) => void;
 }
 
 export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
   onStartNewScan,
   onModifyScan,
   onAddFiles,
+  onViewPdf,
 }) => {
   const [scans, setScans] = useState<StoredScanDoc[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingPdfScanId, setLoadingPdfScanId] = useState<string | null>(null);
   const [deleteScanTarget, setDeleteScanTarget] = useState<StoredScanDoc | null>(null);
   const addFilesInputRef = useRef<HTMLInputElement>(null);
-  const isMobile = isMobileApp();
 
   const loadScans = async () => {
     setIsLoading(true);
@@ -45,33 +49,65 @@ export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
     loadScans();
   }, []);
 
-  // Handle Share: generates PDF and shares with Paperweight caption
+  // Helper: generates PDF blob from stored scan document
+  const getScanPdf = async (scan: StoredScanDoc): Promise<{ blob: Blob; filename: string }> => {
+    const pdfDoc = await PDFDocument.create();
+
+    for (const page of scan.pages) {
+      const response = await fetch(page.dataUrl);
+      const imgBytes = await response.arrayBuffer();
+
+      const embeddedImg = await pdfDoc.embedJpg(imgBytes).catch(async () => {
+        return await pdfDoc.embedPng(imgBytes);
+      });
+
+      const pdfPage = pdfDoc.addPage([embeddedImg.width, embeddedImg.height]);
+      pdfPage.drawImage(embeddedImg, {
+        x: 0,
+        y: 0,
+        width: embeddedImg.width,
+        height: embeddedImg.height,
+      });
+    }
+
+    const pdfBytes = await pdfDoc.save();
+    const blob = new Blob([pdfBytes as unknown as BlobPart], { type: 'application/pdf' });
+    const filename = `${scan.title.replace(/\s+/g, '_')}.pdf`;
+    return { blob, filename };
+  };
+
+  // Thumbnail Click: Opens PDF in PDF Viewer only
+  const handleThumbnailClick = async (scan: StoredScanDoc) => {
+    if (onViewPdf) {
+      try {
+        setLoadingPdfScanId(scan.id);
+        const { blob, filename } = await getScanPdf(scan);
+        onViewPdf(blob, filename);
+      } catch (err) {
+        console.error('Error opening scan in PDF viewer:', err);
+      } finally {
+        setLoadingPdfScanId(null);
+      }
+    } else {
+      onModifyScan(scan);
+    }
+  };
+
+  // Handle Save
+  const handleSaveScan = async (scan: StoredScanDoc) => {
+    try {
+      const { blob, filename } = await getScanPdf(scan);
+      await downloadBlob(blob, filename);
+    } catch (err) {
+      console.error('Error saving document:', err);
+    }
+  };
+
+  // Handle Share
   const handleShareScan = async (scan: StoredScanDoc) => {
     try {
-      const pdfDoc = await PDFDocument.create();
-
-      for (const page of scan.pages) {
-        const response = await fetch(page.dataUrl);
-        const imgBytes = await response.arrayBuffer();
-
-        const embeddedImg = await pdfDoc.embedJpg(imgBytes).catch(async () => {
-          return await pdfDoc.embedPng(imgBytes);
-        });
-
-        const pdfPage = pdfDoc.addPage([embeddedImg.width, embeddedImg.height]);
-        pdfPage.drawImage(embeddedImg, {
-          x: 0,
-          y: 0,
-          width: embeddedImg.width,
-          height: embeddedImg.height,
-        });
-      }
-
-      const pdfBytes = await pdfDoc.save();
-      const pdfBlob = new Blob([pdfBytes as unknown as BlobPart], { type: 'application/pdf' });
-      const filename = `${scan.title.replace(/\s+/g, '_')}.pdf`;
-
-      await shareBlob(pdfBlob, filename);
+      const { blob, filename } = await getScanPdf(scan);
+      await shareBlob(blob, filename);
     } catch (err) {
       console.error('Error sharing document:', err);
     }
@@ -94,17 +130,15 @@ export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
     e.target.value = '';
   };
 
-  const handleTriggerAdd = () => {
-    if (isMobile) {
-      onStartNewScan();
-    } else {
-      addFilesInputRef.current?.click();
-    }
-  };
+  const isMobile = isMobileApp();
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-y-auto bg-surface-bg select-none pb-20">
-      {/* Hidden File Input for Desktop Add Files */}
+    <div className={`flex-1 flex flex-col h-full bg-surface-bg select-none ${
+      isMobile
+        ? 'overflow-y-auto pb-[calc(5.5rem+var(--safe-area-bottom))]'
+        : 'overflow-hidden pb-6'
+    }`}>
+      {/* Hidden File Input for Gallery / File import */}
       <input
         ref={addFilesInputRef}
         type="file"
@@ -115,7 +149,9 @@ export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
       />
 
       {/* Content Area */}
-      <div className="max-w-3xl mx-auto w-full px-4 sm:px-6 py-4 space-y-4">
+      <div className={`max-w-2xl lg:max-w-5xl mx-auto w-full px-4 sm:px-6 py-4 flex flex-col gap-4 ${
+        isMobile ? 'h-auto' : 'flex-1 min-h-0'
+      }`}>
         {/* Loading State */}
         {isLoading && (
           <div className="flex items-center justify-center py-12 text-xs text-text-muted">
@@ -123,61 +159,95 @@ export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
           </div>
         )}
 
-        {/* Empty State */}
-        {!isLoading && scans.length === 0 && (
-          <div className="p-8 sm:p-12 rounded-2xl border-2 border-dashed border-surface-border text-center flex flex-col items-center justify-center space-y-4 bg-surface-subtle/30 my-4">
-            <div className="w-14 h-14 rounded-full bg-accent-subtle text-accent flex items-center justify-center">
-              {isMobile ? <Camera className="w-7 h-7" /> : <FolderPlus className="w-7 h-7" />}
-            </div>
-            <div className="space-y-1">
-              <h3 className="font-serif font-bold text-base text-text-main">
-                No Scanned Documents Yet
-              </h3>
-              <p className="text-xs text-text-muted max-w-xs mx-auto">
-                {isMobile
-                  ? 'Capture notes, receipts, and documents with camera scanning and auto-enhance them on device.'
-                  : 'Add document images or PDFs to enhance readability, crop, and organize completely offline.'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleTriggerAdd}
-              className="py-2.5 px-6 rounded-full bg-accent text-white text-xs font-bold shadow-md hover:bg-accent-hover active:scale-95 transition-all cursor-pointer flex items-center gap-2"
-            >
-              {isMobile ? (
-                <>
-                  <Camera className="w-4 h-4" />
-                  <span>Start First Scan</span>
-                </>
-              ) : (
-                <>
-                  <FolderPlus className="w-4 h-4" />
-                  <span>Add Files</span>
-                </>
-              )}
-            </button>
-          </div>
-        )}
+        {!isLoading && (
+          <>
+            {/* SECTION 1: TOP CARD (Mobile: Scan a doc; Desktop: Import a document) */}
+            <div className="shrink-0">
+              {isMobileApp() ? (
+                <div>
+                  <span className="text-[11px] font-mono font-semibold text-text-muted uppercase tracking-wider block mb-2 px-0.5">
+                    New Scan
+                  </span>
+                  <div className="rounded-sheet border border-surface-border bg-surface-panel p-4 sm:p-5 space-y-3.5 shadow-xs">
+                    <div className="space-y-1">
+                      <h2 className="text-lg sm:text-xl font-bold text-text-main tracking-tight">
+                        Scan a document
+                      </h2>
+                      <p className="text-xs sm:text-sm text-text-muted leading-relaxed">
+                        Use the camera, or pick photos from your gallery. Saved as a PDF.
+                      </p>
+                    </div>
 
-        {/* Document Cards List */}
-        {!isLoading && scans.length > 0 && (
-          <div className="space-y-3">
-            {/* Desktop Top Action Header */}
-            {!isMobile && (
-              <div className="flex items-center justify-between pb-1">
-                <span className="text-xs font-mono font-semibold text-text-muted">
-                  Saved Documents ({scans.length})
+                    <div className="grid grid-cols-2 gap-2.5 pt-1">
+                      <Button
+                        variant="primary"
+                        size="md"
+                        onClick={onStartNewScan}
+                        leftIcon={<Camera className="w-4 h-4" />}
+                        className="w-full font-semibold"
+                      >
+                        Open camera
+                      </Button>
+
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        onClick={() => addFilesInputRef.current?.click()}
+                        leftIcon={<Image className="w-4 h-4" />}
+                        className="w-full font-semibold"
+                      >
+                        From gallery
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <span className="text-[11px] font-mono font-semibold text-text-muted uppercase tracking-wider block mb-2 px-0.5">
+                    New PDF
+                  </span>
+                  <div className="rounded-sheet border border-surface-border bg-surface-panel p-5 sm:p-6 space-y-3.5 shadow-xs text-center flex flex-col items-center">
+                    <div className="space-y-1 max-w-md">
+                      <h2 className="text-lg sm:text-xl font-bold text-text-main tracking-tight">
+                        Import a document
+                      </h2>
+                      <p className="text-xs sm:text-sm text-text-muted leading-relaxed">
+                        Pick photos or document files from your computer to create and organize a clean PDF.
+                      </p>
+                    </div>
+
+                    <div className="pt-1">
+                      <Button
+                        variant="primary"
+                        size="md"
+                        onClick={() => addFilesInputRef.current?.click()}
+                        leftIcon={<FolderPlus className="w-4 h-4" />}
+                        className="w-auto px-8 font-semibold shadow-xs"
+                      >
+                        Add files
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* SECTION 2: RECENT SCANS (Fills remaining height on desktop; scrolls naturally on mobile) */}
+            <div className={`w-full ${isMobile ? 'flex flex-col' : 'flex-1 min-h-0 flex flex-col'}`}>
+              <div className="flex items-center justify-between mb-2 px-0.5 shrink-0">
+                <span className="text-[11px] font-mono font-semibold text-text-muted uppercase tracking-wider">
+                  Recent {scans.length > 0 && `(${scans.length})`}
                 </span>
-                <button
-                  type="button"
-                  onClick={handleTriggerAdd}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover text-xs font-semibold shadow-xs cursor-pointer transition-all active:scale-95"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Files</span>
-                </button>
               </div>
-            )}
+
+              {scans.length === 0 ? (
+                <div className={`${isMobile ? 'py-8' : 'flex-1'} w-full rounded-sheet border border-surface-border bg-surface-panel p-6 sm:p-8 text-center text-xs sm:text-sm text-text-muted flex items-center justify-center shadow-xs`}>
+                  <p>Nothing scanned yet. Your scans will appear here.</p>
+                </div>
+              ) : (
+                <div className={`grid grid-cols-1 md:grid-cols-2 gap-3 space-y-0 items-start content-start auto-rows-max ${
+                  isMobile ? '' : 'overflow-y-auto pr-1 flex-1 min-h-0'
+                }`}>
 
             {scans.map((scan) => {
               const dateStr = new Date(scan.createdAt).toLocaleDateString('en-GB', {
@@ -189,14 +259,20 @@ export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
               return (
                 <div
                   key={scan.id}
-                  className="p-3.5 rounded-2xl border border-surface-border bg-surface-panel shadow-xs hover:border-accent/40 transition-all flex items-start gap-4"
+                  className="paper-sheet p-3.5 transition-colors flex items-start gap-4 h-auto"
                 >
-                  {/* Thumbnail on left */}
+                  {/* Thumbnail on left: click opens in PDF viewer directly */}
                   <div
-                    onClick={() => onModifyScan(scan)}
-                    className="relative w-20 sm:w-24 aspect-[1/1.3] rounded-none overflow-hidden border border-surface-border bg-surface-subtle shrink-0 cursor-pointer group"
+                    onClick={() => handleThumbnailClick(scan)}
+                    className="relative w-20 sm:w-24 aspect-[1/1.3] rounded-none overflow-hidden border border-surface-border bg-surface-subtle shrink-0 cursor-pointer group hover:border-accent transition-colors"
+                    title="Click to view PDF"
                   >
-                    {scan.thumbnailUrl ? (
+                    {loadingPdfScanId === scan.id ? (
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-accent text-xs">
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span className="text-[10px] font-mono">Opening...</span>
+                      </div>
+                    ) : scan.thumbnailUrl ? (
                       <img
                         src={scan.thumbnailUrl}
                         alt={scan.title}
@@ -204,23 +280,23 @@ export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-text-muted">
-                        <FileText className="w-8 h-8 opacity-40" />
+                        <FileText className="w-7 h-7" />
                       </div>
                     )}
                     {/* Page Count Badge */}
-                    <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/70 text-white font-mono text-[9px] font-semibold backdrop-blur-xs">
+                    <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-chip bg-surface-panel text-text-main border border-surface-border shadow-xs font-mono text-xs font-medium">
                       {scan.pageCount} {scan.pageCount === 1 ? 'P' : 'PP'}
                     </div>
                   </div>
 
-                  {/* Card Content & Exactly 2 Options: Share & Modify Scan */}
-                  <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch py-0.5">
+                  {/* Card Content & 3 Actions: Edit, Save, Share */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-between min-h-[96px] py-0.5 pr-1">
                     {/* Title & Date */}
                     <div>
                       <div className="flex items-start justify-between gap-2">
                         <h3
                           onClick={() => onModifyScan(scan)}
-                          className="font-semibold text-sm sm:text-base text-text-main truncate hover:text-accent cursor-pointer"
+                          className="font-semibold text-sm sm:text-md text-text-main truncate hover:text-accent cursor-pointer"
                         >
                           {scan.title}
                         </h3>
@@ -230,36 +306,49 @@ export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
                             e.stopPropagation();
                             setDeleteScanTarget(scan);
                           }}
-                          className="text-text-muted hover:text-status-error p-1 rounded transition-colors cursor-pointer shrink-0"
+                          className="min-w-[36px] min-h-[36px] inline-flex items-center justify-center text-text-muted hover:text-status-error rounded-control transition-colors cursor-pointer shrink-0"
                           title="Delete scan"
+                          aria-label={`Delete ${scan.title}`}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
-                      <div className="flex items-center gap-1.5 text-xs text-text-muted mt-1">
-                        <Clock className="w-3.5 h-3.5 text-text-faint" />
+                      <div className="flex items-center gap-1.5 text-xs font-mono text-text-muted mt-1">
+                        <Clock className="w-3.5 h-3.5" />
                         <span>{dateStr}</span>
                       </div>
                     </div>
 
-                    {/* Options: Share and Modify scan */}
-                    <div className="pt-3 flex items-center gap-2">
+                    {/* Options: 1. Edit, 2. Save, 3. Share in that order */}
+                    <div className="pt-2.5 flex items-center gap-1.5 sm:gap-2 flex-wrap">
                       <button
                         type="button"
-                        onClick={() => handleShareScan(scan)}
-                        className="flex items-center gap-1.5 py-1.5 px-3 rounded-lg border border-surface-border bg-surface-subtle hover:bg-surface-panel hover:border-accent text-xs font-semibold text-text-main active:scale-95 transition-all cursor-pointer"
+                        onClick={() => onModifyScan(scan)}
+                        className="min-h-[38px] h-9 flex items-center gap-1.5 px-3 rounded-control bg-accent hover:bg-accent-hover text-xs font-semibold text-accent-contrast transition-colors cursor-pointer shadow-2xs"
+                        title="Edit scan"
                       >
-                        <Share2 className="w-3.5 h-3.5 text-accent" />
-                        <span>Share</span>
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Edit</span>
                       </button>
 
                       <button
                         type="button"
-                        onClick={() => onModifyScan(scan)}
-                        className="flex items-center gap-1.5 py-1.5 px-3 rounded-lg border border-accent/40 bg-accent-subtle hover:bg-accent/15 text-xs font-semibold text-accent active:scale-95 transition-all cursor-pointer"
+                        onClick={() => handleSaveScan(scan)}
+                        className="min-h-[38px] h-9 flex items-center gap-1.5 px-3 rounded-control border border-surface-border bg-surface-subtle hover:bg-surface-hover text-xs font-semibold text-text-main transition-colors cursor-pointer"
+                        title="Save PDF to device"
                       >
-                        <Edit3 className="w-3.5 h-3.5" />
-                        <span>Modify scan</span>
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Save</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleShareScan(scan)}
+                        className="min-h-[38px] h-9 flex items-center gap-1.5 px-3 rounded-control border border-surface-border bg-surface-subtle hover:bg-surface-hover text-xs font-semibold text-text-main transition-colors cursor-pointer"
+                        title="Share PDF"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                        <span>Share</span>
                       </button>
                     </div>
                   </div>
@@ -269,16 +358,23 @@ export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
           </div>
         )}
       </div>
+    </>
+  )}
+</div>
 
       {/* DELETE SCAN CONFIRMATION WARNING MODAL */}
       {deleteScanTarget && (
-        <div className="fixed inset-0 z-60 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="w-full max-w-sm rounded-2xl bg-surface-panel border border-surface-border p-5 shadow-2xl text-center space-y-4">
+        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-sm rounded-sheet bg-surface-panel border border-surface-border p-5 shadow-lifted text-center space-y-4"
+          >
             <div className="space-y-1.5">
-              <h3 className="font-serif font-bold text-base sm:text-lg text-text-main">
-                Are you sure to delete this scan?
+              <h3 className="font-semibold text-md text-text-main">
+                Delete this scan?
               </h3>
-              <p className="text-xs text-text-muted">
+              <p className="text-sm text-text-muted">
                 &ldquo;{deleteScanTarget.title}&rdquo; will be permanently removed.
               </p>
             </div>
@@ -286,14 +382,14 @@ export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
               <button
                 type="button"
                 onClick={() => setDeleteScanTarget(null)}
-                className="flex-1 py-2.5 px-4 rounded-xl border border-surface-border bg-surface-subtle hover:bg-surface-panel text-text-main font-semibold text-xs transition-colors cursor-pointer active:scale-95"
+                className="flex-1 min-h-[44px] px-4 rounded-control border border-surface-border bg-surface-subtle hover:bg-surface-hover text-text-main font-semibold text-sm transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDelete}
-                className="flex-1 py-2.5 px-4 rounded-xl bg-status-error hover:opacity-90 text-white font-semibold text-xs transition-colors cursor-pointer active:scale-95 shadow-md"
+                className="flex-1 min-h-[44px] px-4 rounded-control bg-status-error hover:opacity-90 text-white font-semibold text-sm transition-colors cursor-pointer"
               >
                 Delete
               </button>

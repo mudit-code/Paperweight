@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { ToolProps } from '../../core/tools/types';
 import { CompressorShowcase } from './CompressorShowcase';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { ResultCard } from '../../components/ui/ResultCard';
+import { MoveToLibraryModal } from '../../components/ui/MoveToLibraryModal';
+import { saveLibraryAssets, generateAssetThumbnail } from '../../core/library/library-db';
 import { isMobileApp } from '../../core/processors/download';
 import {
   AlertCircle,
@@ -10,7 +12,7 @@ import {
   FileText,
   FileImage,
   FileCode,
-  ArrowRight,
+  ChevronRight,
 } from 'lucide-react';
 
 export type CompressorMode = 'pdf' | 'image' | 'doc';
@@ -18,6 +20,7 @@ export type CompressorMode = 'pdf' | 'image' | 'doc';
 interface DedicatedConfig {
   id: CompressorMode;
   shortLabel: string;
+  compactTitle: string;
   name: string;
   tagline: string;
   badge: string;
@@ -30,9 +33,10 @@ export const COMPRESSOR_MODES: DedicatedConfig[] = [
   {
     id: 'pdf',
     shortLabel: 'PDF',
+    compactTitle: 'PDF',
     name: 'PDF Compressor',
-    tagline: 'Lossless stream packing, metadata stripping, and raster resampling for PDF documents.',
-    badge: 'PDF',
+    tagline: 'Shrink PDFs, many at once',
+    badge: '.pdf',
     description: 'Optimize PDF documents with object stream packing, metadata cleaning, and optional raster downsampling.',
     acceptedMimes: ['application/pdf', '.pdf'],
     icon: FileText,
@@ -40,9 +44,10 @@ export const COMPRESSOR_MODES: DedicatedConfig[] = [
   {
     id: 'image',
     shortLabel: 'IMG',
+    compactTitle: 'Images',
     name: 'Image Compressor',
-    tagline: 'Scale dimensions, compress file sizes, and convert between WebP, PNG, and JPEG formats.',
-    badge: 'JPG, PNG, WEBP',
+    tagline: 'Shrink photos and screenshots',
+    badge: '.jpg · .png · .webp',
     description: 'Downscale dimensions and apply color quantization to photos and graphics with real-time preview.',
     acceptedMimes: ['image/jpeg', 'image/png', 'image/webp', 'image/*'],
     icon: FileImage,
@@ -50,9 +55,10 @@ export const COMPRESSOR_MODES: DedicatedConfig[] = [
   {
     id: 'doc',
     shortLabel: 'DOC',
+    compactTitle: 'Documents',
     name: 'Document Compressor',
-    tagline: 'Word (.docx) optimization with embedded media recompression and maximum DEFLATE packaging.',
-    badge: 'DOCX',
+    tagline: 'Shrink Word files',
+    badge: '.docx',
     description: 'Unpack Word archives, compress embedded screenshots and photos, and repack with Level 9 DEFLATE.',
     acceptedMimes: [
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -78,13 +84,17 @@ const ImageResizerTool: React.FC<ToolProps> = ({
   sizeEstimate,
   onExecute,
   onCancel,
+  onViewImages,
+  onViewFile,
 }) => {
-  // Driven directly by options.compressorMode (null = Screen 1 Options Hub, just like Converter)
+  // Driven directly by options.compressorMode (null = Screen 1 Options Hub on mobile; desktop has segmented tabs)
   const selectedMode = (options.compressorMode as CompressorMode) || null;
-  const activeConfig = COMPRESSOR_MODES.find((m) => m.id === selectedMode);
+  const activeDesktopMode: CompressorMode = selectedMode || 'pdf';
+  const activeConfig = COMPRESSOR_MODES.find((m) => m.id === (isMobileApp() ? selectedMode : activeDesktopMode));
   const isMobile = isMobileApp() || (typeof window !== 'undefined' && window.innerWidth < 768);
+  const [pendingSwitchMode, setPendingSwitchMode] = useState<CompressorMode | null>(null);
 
-  const handleSelectMode = (mode: CompressorMode) => {
+  const applyModeSwitch = (mode: CompressorMode) => {
     if (result && onDismissResult) {
       onDismissResult();
     }
@@ -97,12 +107,70 @@ const ImageResizerTool: React.FC<ToolProps> = ({
       compressionLevel: 40,
       maxDimension: 'original',
     });
+    setPendingSwitchMode(null);
+  };
+
+  const handleSelectMode = (mode: CompressorMode) => {
+    const currentMode = selectedMode || activeDesktopMode;
+    if (mode === currentMode) return;
+
+    if (files.length > 0 && !result) {
+      setPendingSwitchMode(mode);
+      return;
+    }
+
+    applyModeSwitch(mode);
+  };
+
+  const handleConfirmExitAndSaveDraft = async () => {
+    if (files.length > 0 && pendingSwitchMode) {
+      try {
+        const primaryFile = files[0];
+        const draftName =
+          files.length > 1 ? `${primaryFile.name} (+${files.length - 1} more)` : primaryFile.name;
+        const thumb = await generateAssetThumbnail(primaryFile.data, primaryFile.type);
+        await saveLibraryAssets([
+          {
+            name: draftName,
+            type: primaryFile.type,
+            size: files.reduce((sum, f) => sum + f.size, 0),
+            data: primaryFile.data,
+            thumbnailUrl: thumb,
+            category: 'compression',
+            section: 'drafts',
+            kind: primaryFile.type.includes('pdf') ? 'pdf' : 'image',
+            draftSnapshot: {
+              toolId: 'image-resizer',
+              files,
+              options: { ...options, compressorMode: selectedMode || activeDesktopMode },
+            },
+          },
+        ]);
+      } catch (err) {
+        console.warn('Failed to save draft on compressor switch:', err);
+      }
+    }
+    if (pendingSwitchMode) {
+      applyModeSwitch(pendingSwitchMode);
+    }
   };
 
   return (
     <div className={`flex-1 flex flex-col ${isMobile ? 'h-full overflow-hidden p-2 sm:p-3 pb-[calc(4.5rem+var(--safe-area-bottom))]' : 'lg:h-full lg:overflow-hidden select-none bg-surface-bg'}`}>
+      {/* Draft Warning Modal on Tab Switching */}
+      <MoveToLibraryModal
+        isOpen={Boolean(pendingSwitchMode)}
+        actionWording="compressing"
+        itemCount={files.length}
+        onCancel={() => setPendingSwitchMode(null)}
+        onExitWithoutSaving={() => {
+          if (pendingSwitchMode) applyModeSwitch(pendingSwitchMode);
+        }}
+        onExitAndMove={handleConfirmExitAndSaveDraft}
+      />
+
       {/* Scrollable Main Area on desktop lg, fitted flex column on mobile */}
-      <div className={`flex-1 flex flex-col ${isMobile ? 'min-h-0 overflow-hidden' : 'lg:overflow-y-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4'}`}>
+      <div className={`flex-1 flex flex-col ${isMobile ? 'min-h-0 overflow-hidden' : 'lg:overflow-y-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4 min-h-0'}`}>
         {/* Execution Error Banner */}
         {error && (
           <div
@@ -142,45 +210,36 @@ const ImageResizerTool: React.FC<ToolProps> = ({
           <ProgressBar progress={progress} onCancel={onCancel} />
         )}
 
-        {/* 1. OPTIONS HUB (When no compressor mode selected yet) */}
-        {!selectedMode ? (
-          <div className="max-w-4xl mx-auto py-2 animate-in fade-in w-full">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
+        {/* DESKTOP (>= md): Segmented control tabs centered above large showcase */}
+        <div className="hidden md:flex flex-col gap-4 max-w-5xl mx-auto w-full flex-1 min-h-0">
+          <div className="flex items-center justify-center gap-3">
+            <div
+              role="tablist"
+              aria-label="Compressor type"
+              className="inline-flex items-center p-1 rounded-control bg-surface-panel border border-surface-border gap-1"
+            >
               {COMPRESSOR_MODES.map((opt) => {
-                const Icon = opt.icon;
+                const isActive = activeDesktopMode === opt.id;
                 return (
                   <button
                     key={opt.id}
                     type="button"
+                    role="tab"
+                    aria-selected={isActive}
                     onClick={() => handleSelectMode(opt.id)}
-                    className="group text-left p-5 rounded-2xl bg-surface-panel border border-surface-border hover:border-accent hover:shadow-md transition-all duration-200 flex flex-col justify-between space-y-4 cursor-pointer relative overflow-hidden"
+                    className={`min-h-[40px] px-4 rounded-control text-sm font-medium transition-colors cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+                      isActive
+                        ? 'bg-accent text-accent-contrast font-semibold'
+                        : 'text-text-muted hover:text-text-main hover:bg-surface-hover'
+                    }`}
                   >
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="w-12 h-12 rounded-xl bg-accent-subtle/80 border border-accent/20 flex items-center justify-center text-accent group-hover:scale-105 transition-transform">
-                          <Icon className="w-6 h-6" />
-                        </div>
-                        <span className="font-mono text-[10px] font-semibold px-2 py-0.5 rounded-full bg-surface-subtle text-text-muted border border-surface-border">
-                          {opt.badge}
-                        </span>
-                      </div>
-                      <div>
-                        <h3 className="font-serif font-bold text-base text-text-main group-hover:text-accent transition-colors">
-                          {opt.name}
-                        </h3>
-                      </div>
-                    </div>
-                    <div className="pt-2 flex items-center gap-1.5 text-xs font-semibold text-accent group-hover:translate-x-0.5 transition-transform">
-                      <span>Open Compressor</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </div>
+                    <span>{opt.name}</span>
                   </button>
                 );
               })}
             </div>
           </div>
-        ) : (
-          /* 2. DEDICATED COMPRESSOR MODULE (No duplicate header/tagline block) */
+
           <CompressorShowcase
             files={files}
             onFilesChange={onFilesChange}
@@ -192,12 +251,79 @@ const ImageResizerTool: React.FC<ToolProps> = ({
             result={result}
             sizeEstimate={sizeEstimate}
             onExecuteBatch={onExecute}
-            acceptedMimes={activeConfig?.acceptedMimes}
+            onViewImages={onViewImages}
+            onViewFile={onViewFile}
+            acceptedMimes={COMPRESSOR_MODES.find((m) => m.id === activeDesktopMode)?.acceptedMimes}
             maxFiles={250}
-            activeMode={selectedMode}
-            className={isMobile ? 'flex-1 min-h-0' : ''}
+            activeMode={activeDesktopMode}
+            className="flex-1 min-h-0"
           />
-        )}
+        </div>
+
+        {/* MOBILE (< md): Options Hub or Dedicated Module */}
+        <div className={`md:hidden ${selectedMode ? 'flex-1 min-h-0 flex flex-col' : ''}`}>
+          {!selectedMode ? (
+            <div className="w-full max-w-2xl mx-auto py-2 sm:py-4 flex flex-col gap-3">
+              {/* Unified 3-Row Card */}
+              <div className="rounded-sheet border border-surface-border bg-surface-panel divide-y divide-surface-border overflow-hidden shadow-2xs">
+                {COMPRESSOR_MODES.map((opt) => {
+                  const Icon = opt.icon;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => handleSelectMode(opt.id)}
+                      className="w-full p-4 flex items-center gap-4 text-left bg-surface-panel hover:bg-surface-hover transition-colors cursor-pointer group"
+                    >
+                      {/* Left: Rounded square icon */}
+                      <div className="w-12 h-12 rounded-control bg-surface-subtle border border-surface-border/60 flex items-center justify-center shrink-0 text-text-main group-hover:text-accent transition-colors">
+                        <Icon className="w-6 h-6" />
+                      </div>
+
+                      {/* Middle: Title and Format Badge */}
+                      <div className="flex-1 min-w-0">
+                        <span className="text-base font-bold text-text-main block">
+                          {opt.compactTitle}
+                        </span>
+                        <span className="font-mono text-xs text-text-muted mt-0.5 inline-block">
+                          {opt.badge}
+                        </span>
+                      </div>
+
+                      {/* Right: Chevron */}
+                      <ChevronRight className="w-5 h-5 text-text-muted shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Bottom Centered Privacy Note */}
+              <p className="text-center text-xs text-text-muted pt-1">
+                Processed on this device. Nothing is uploaded.
+              </p>
+            </div>
+          ) : (
+            /* 2. DEDICATED COMPRESSOR MODULE (No duplicate header/tagline block) */
+            <CompressorShowcase
+              files={files}
+              onFilesChange={onFilesChange}
+              options={options}
+              onOptionsChange={onOptionsChange}
+              isProcessing={isProcessing}
+              progress={progress}
+              onCancel={onCancel}
+              result={result}
+              sizeEstimate={sizeEstimate}
+              onExecuteBatch={onExecute}
+              onViewImages={onViewImages}
+              onViewFile={onViewFile}
+              acceptedMimes={activeConfig?.acceptedMimes}
+              maxFiles={250}
+              activeMode={selectedMode}
+              className="flex-1 min-h-0"
+            />
+          )}
+        </div>
       </div>
     </div>
   );

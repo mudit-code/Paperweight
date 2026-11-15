@@ -78,13 +78,16 @@ function base64ToBlob(base64Data: string, mimeType = 'application/pdf'): Blob {
 }
 
 export const AppShell: React.FC = () => {
+  // Detect if running on Electron desktop app
+  const isElectron =
+    typeof window !== 'undefined' && Boolean((window as unknown as { electronAPI?: unknown }).electronAPI);
+
   // Detect if running on mobile device (Android/Capacitor). Desktop apps (Electron and desktop browsers) are false.
-  const isMobile =
-    isMobileApp() &&
-    !(typeof window !== 'undefined' && Boolean((window as unknown as { electronAPI?: unknown }).electronAPI));
+  const isMobile = isMobileApp() && !isElectron;
 
   const [tools, setTools] = useState<ToolManifest[]>(() => toolRegistry.getAll());
-  const [activeToolId, setActiveToolId] = useState<string>('converter');
+  const [activeToolId, setActiveToolId] = useState<string>('scans');
+  const previousToolIdRef = useRef<string>('scans');
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState<boolean>(false);
   const [isOptionsOpenMobile, setIsOptionsOpenMobile] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
@@ -103,6 +106,7 @@ export const AppShell: React.FC = () => {
   const scanPdfInputRef = useRef<HTMLInputElement>(null);
   const desktopScanFilesInputRef = useRef<HTMLInputElement>(null);
   const desktopReplaceFileInputRef = useRef<HTMLInputElement>(null);
+  const resizerFileInputRef = useRef<HTMLInputElement>(null);
 
   // Active Tool State
   const [files, setFiles] = useState<ProcessedFile[]>([]);
@@ -253,6 +257,96 @@ export const AppShell: React.FC = () => {
   const [galleryImages, setGalleryImages] = useState<GalleryItem[]>([]);
   const [isGalleryOpen, setIsGalleryOpen] = useState<boolean>(false);
   const [galleryInitialIndex, setGalleryInitialIndex] = useState<number>(0);
+
+  // Virtual keyboard visibility detection (smoothly hides MobileNavBar without unmounting)
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.toggle('keyboard-open', isKeyboardOpen);
+    }
+  }, [isKeyboardOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+        setIsKeyboardOpen(true);
+        setTimeout(() => {
+          if (window.scrollY !== 0 || window.scrollX !== 0) {
+            window.scrollTo(0, 0);
+          }
+          target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          if (window.scrollY !== 0 || window.scrollX !== 0) {
+            window.scrollTo(0, 0);
+          }
+        }, 100);
+      }
+    };
+
+    const handleFocusOut = () => {
+      setTimeout(() => {
+        if (window.scrollY !== 0 || window.scrollX !== 0) {
+          window.scrollTo(0, 0);
+        }
+        if (!window.visualViewport || (window.innerHeight - window.visualViewport.height) <= 100) {
+          setIsKeyboardOpen(false);
+        }
+      }, 100);
+    };
+
+    const handleViewportResize = () => {
+      if (window.visualViewport) {
+        const diff = window.innerHeight - window.visualViewport.height;
+        const isOpen = diff > 100;
+        setIsKeyboardOpen(isOpen);
+
+        if (isOpen) {
+          if (window.scrollY !== 0 || window.scrollX !== 0) {
+            window.scrollTo(0, 0);
+          }
+          const active = document.activeElement as HTMLElement | null;
+          if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
+            setTimeout(() => {
+              if (window.scrollY !== 0 || window.scrollX !== 0) {
+                window.scrollTo(0, 0);
+              }
+              active.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              if (window.scrollY !== 0 || window.scrollX !== 0) {
+                window.scrollTo(0, 0);
+              }
+            }, 60);
+          }
+        }
+      }
+    };
+
+    const handleWindowScroll = () => {
+      if (window.scrollY !== 0 || window.scrollX !== 0) {
+        window.scrollTo(0, 0);
+      }
+    };
+
+    window.addEventListener('scroll', handleWindowScroll, { passive: true });
+    window.addEventListener('focusin', handleFocusIn);
+    window.addEventListener('focusout', handleFocusOut);
+    window.visualViewport?.addEventListener('resize', handleViewportResize);
+
+    return () => {
+      window.removeEventListener('scroll', handleWindowScroll);
+      window.removeEventListener('focusin', handleFocusIn);
+      window.removeEventListener('focusout', handleFocusOut);
+      window.visualViewport?.removeEventListener('resize', handleViewportResize);
+    };
+  }, []);
+
+  const handleViewImages = useCallback((images: GalleryItem[], initialIndex = 0) => {
+    setGalleryImages(images);
+    setGalleryInitialIndex(initialIndex);
+    setIsGalleryOpen(true);
+  }, []);
 
   const handleIncomingPdf = useCallback(async () => {
     if (typeof window === 'undefined') return;
@@ -546,7 +640,28 @@ export const AppShell: React.FC = () => {
     }
     setIsGalleryOpen(true);
   }, [files]);
-  void handleOpenGallery;
+  const handleViewFile = useCallback((file: ProcessedFile) => {
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      const blob = new Blob([file.data], { type: 'application/pdf' });
+      setOpenedPdf({ blob, name: file.name });
+    } else if (file.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|bmp|gif|tiff?)$/i.test(file.name)) {
+      const imageFiles = files.filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|bmp|gif|tiff?)$/i.test(f.name));
+      if (imageFiles.length > 0 && imageFiles.some((f) => f.id === file.id)) {
+        handleOpenGallery(file);
+      } else {
+        const blob = file.data && file.data.byteLength > 0 ? new Blob([file.data], { type: file.type || 'image/png' }) : undefined;
+        const item: GalleryItem = {
+          id: file.id || `f_${Date.now()}`,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          blob,
+          url: file.previewUrl || (blob ? URL.createObjectURL(blob) : ''),
+        };
+        handleViewImages([item], 0);
+      }
+    }
+  }, [files, handleOpenGallery, handleViewImages]);
 
   useEffect(() => {
     // 1. Process shared images / PDF if launched via system intent (cold start)
@@ -681,7 +796,12 @@ export const AppShell: React.FC = () => {
         defaultOpts[opt.id] = opt.defaultValue;
       }
       if (activeToolId === 'converter') {
-        delete defaultOpts.converterMode;
+        const isNarrowScreen = isMobile || (typeof window !== 'undefined' && window.innerWidth < 768);
+        if (isNarrowScreen) {
+          delete defaultOpts.converterMode;
+        } else {
+          defaultOpts.converterMode = 'pdf-to-img';
+        }
       }
       if (activeToolId === 'image-resizer') {
         delete defaultOpts.compressorMode;
@@ -707,6 +827,10 @@ export const AppShell: React.FC = () => {
 
   const requestSelectTool = (targetId: string) => {
     if (targetId === activeToolId) return;
+
+    if (activeToolId !== 'library') {
+      previousToolIdRef.current = activeToolId;
+    }
 
     // Prompt MoveToLibraryModal only when workspace has in-process / modified unsaved work
     if (hasInProcessUnsavedWork() && activeToolId !== 'library' && activeToolId !== 'scans') {
@@ -781,7 +905,7 @@ export const AppShell: React.FC = () => {
             };
           })
         );
-        await addAssetsToLibraryWithToast(producedToSave, 'Saved to Recently Processed');
+        await addAssetsToLibraryWithToast(producedToSave, 'Saved to Recents');
       } else if (result?.blob) {
         const buffer = await result.blob.arrayBuffer();
         await addAssetsToLibraryWithToast(
@@ -795,7 +919,7 @@ export const AppShell: React.FC = () => {
               category,
             },
           ],
-          'Saved to Recently Processed'
+          'Saved to Recents'
         );
       }
     } catch (err) {
@@ -1070,8 +1194,8 @@ export const AppShell: React.FC = () => {
           await addAssetsToLibraryWithToast(
             producedToSave,
             producedToSave.length === 1
-              ? 'Saved to Recently Processed'
-              : `${producedToSave.length} items saved to Recently Processed`
+              ? 'Saved to Recents'
+              : `${producedToSave.length} items saved to Recents`
           );
         }
 
@@ -1113,15 +1237,20 @@ export const AppShell: React.FC = () => {
     setProgress(null);
   };
 
+  const isNarrowViewport = isMobile || (typeof window !== 'undefined' && window.innerWidth < 768);
   const canGoBack =
-    (activeToolId === 'converter' && Boolean(options.converterMode)) ||
-    (activeToolId === 'image-resizer' && Boolean(options.compressorMode));
+    isNarrowViewport && (
+      (activeToolId === 'converter' && Boolean(options.converterMode)) ||
+      (activeToolId === 'image-resizer' && Boolean(options.compressorMode)) ||
+      (activeToolId === 'resizer' && files.length > 0)
+    );
 
   const handleHeaderBack = () => {
     if (
       hasInProcessUnsavedWork() &&
       ((activeToolId === 'converter' && Boolean(options.converterMode)) ||
-        (activeToolId === 'image-resizer' && Boolean(options.compressorMode)))
+        (activeToolId === 'image-resizer' && Boolean(options.compressorMode)) ||
+        (activeToolId === 'resizer' && files.length > 0))
     ) {
       setPendingNavToolId('__header_back__');
       setIsMoveToLibraryOpen(true);
@@ -1150,6 +1279,17 @@ export const AppShell: React.FC = () => {
       setFiles([]);
       if (result) setResult(null);
       if (error) setError(null);
+    } else if (activeToolId === 'resizer' && files.length > 0) {
+      if (options.resizerStep === 'crop') {
+        setOptions((prev) => ({ ...prev, resizerStep: 'settings' }));
+        if (result) setResult(null);
+      } else {
+        setActiveDraftId(null);
+        lastSavedSignatureRef.current = null;
+        setFiles([]);
+        if (result) setResult(null);
+        if (error) setError(null);
+      }
     }
   };
 
@@ -1213,6 +1353,12 @@ export const AppShell: React.FC = () => {
         return;
       }
 
+      if (activeToolId === 'resizer' && files.length > 0) {
+        e.preventDefault();
+        handleHeaderBack();
+        return;
+      }
+
       if (activeToolId !== 'scans') {
         e.preventDefault();
         requestSelectTool('scans');
@@ -1237,13 +1383,14 @@ export const AppShell: React.FC = () => {
   ]);
 
   const getToolDisplayName = () => {
-    if (activeToolId === 'scans') return 'Recent Scans';
+    if (activeToolId === 'scans') return 'Scans';
     if (activeToolId === 'library') return 'Library';
+    if (activeToolId === 'pdf-merge') return 'Merge';
     if (activeToolId === 'converter') {
       const mode = options.converterMode as string | undefined;
       if (mode === 'pdf-to-img') return 'PDF to Image';
       if (mode === 'img-to-pdf') return 'Image to PDF';
-      if (mode === 'img-to-img') return 'Image to Any Image';
+      if (mode === 'img-to-img') return 'Convert Images';
       if (FEATURE_FLAGS.ENABLE_OFFICE_CONVERTER) {
         if (mode === 'word-to-pdf') return 'Word to PDF';
         if (mode === 'excel-to-pdf') return 'Excel to PDF';
@@ -1253,51 +1400,61 @@ export const AppShell: React.FC = () => {
     }
     if (activeToolId === 'image-resizer') {
       const mode = options.compressorMode as string | undefined;
-      if (mode === 'pdf') return 'PDF Compressor';
-      if (mode === 'image') return 'Image Compressor';
-      if (mode === 'doc') return 'Document Compressor';
+      if (mode === 'pdf') return 'Compress PDF';
+      if (mode === 'image') return 'Compress Images';
+      if (mode === 'doc') return 'Compress Documents';
       return 'Compress';
     }
     if (activeToolId === 'resizer') {
-      if (files.length > 0) return files[0].name;
       return 'Image Resizer';
     }
     return activeManifest?.name;
   };
 
   const isSelectingOption =
-    (activeToolId === 'converter' && !options.converterMode) ||
-    (activeToolId === 'image-resizer' && !options.compressorMode);
+    (activeToolId === 'converter' && isNarrowViewport && !options.converterMode) ||
+    (activeToolId === 'image-resizer' && isNarrowViewport && !options.compressorMode);
 
   const shouldShowOptionsPanel =
     activeToolId !== 'scans' && activeToolId !== 'library' && !isSelectingOption && Boolean(activeManifest);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-surface-bg text-text-main font-sans">
-      {/* Left Persistent Tools Sidebar (Full height) */}
-      <Sidebar
-        tools={tools}
-        activeToolId={activeToolId}
-        onSelectTool={requestSelectTool}
-        isOpenMobile={isSidebarOpenMobile}
-        onCloseMobile={() => setIsSidebarOpenMobile(false)}
-        libraryCount={libraryAssetCount}
-      />
+    <div className="fixed inset-0 flex flex-col h-full w-full overflow-hidden bg-surface-bg text-text-main font-sans">
+      {/* Main Workspace Frame */}
+      <div className="flex flex-1 overflow-hidden min-h-0 relative">
+        {/* Left Persistent Tools Sidebar (Full height) */}
+        <Sidebar
+          tools={tools}
+          activeToolId={activeToolId}
+          onSelectTool={requestSelectTool}
+          isOpenMobile={isSidebarOpenMobile}
+          onCloseMobile={() => setIsSidebarOpenMobile(false)}
+          libraryCount={libraryAssetCount}
+        />
 
-      {/* Right Column: Top Header + Workspace Canvas (Hidden during full-screen camera/editor scanning) */}
-      <div className={`flex-1 flex flex-col min-w-0 h-full overflow-hidden ${isScanningOrEditing ? 'hidden' : ''}`}>
-        {/* Top Header of the Workspace Area */}
+        {/* Right Column: Top Header + Workspace Canvas (Hidden during full-screen camera/editor scanning) */}
+        <div className={`flex-1 flex flex-col min-w-0 h-full overflow-hidden ${isScanningOrEditing ? 'hidden' : ''}`}>
+        {/* Top Header of the Workspace Area (permanently fixed at top, never scrolls) */}
         {activeToolId !== 'library' && (
-          <Header
-            activeToolName={getToolDisplayName()}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            onOpenLibrary={() => requestSelectTool('library')}
-            libraryCount={libraryAssetCount}
-            onToggleSidebar={isMobileApp() ? undefined : () => setIsSidebarOpenMobile(true)}
-            canGoBack={canGoBack}
-            onBack={handleHeaderBack}
-            backTooltip="Back to all converters"
-          />
+          <div className="shrink-0 sticky top-0 z-20 w-full">
+            <Header
+              activeToolName={getToolDisplayName()}
+              hasOptionsPanel={shouldShowOptionsPanel}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onOpenLibrary={() => requestSelectTool('library')}
+              libraryCount={libraryAssetCount}
+              onToggleSidebar={isMobileApp() ? undefined : () => setIsSidebarOpenMobile(true)}
+              canGoBack={canGoBack}
+              onBack={handleHeaderBack}
+              backTooltip={
+                activeToolId === 'image-resizer'
+                  ? 'Back to Compressors'
+                  : activeToolId === 'resizer'
+                  ? 'Back to Image Resizer'
+                  : 'Back to Converters'
+              }
+            />
+          </div>
         )}
 
         {/* Main 2-Pane Workspace */}
@@ -1306,13 +1463,13 @@ export const AppShell: React.FC = () => {
           <main
             role="main"
             className={`flex-1 flex flex-col min-w-0 ${
-              activeToolId === 'resizer' || activeToolId === 'scans' || activeToolId === 'library' || (isMobile && activeToolId === 'image-resizer')
+              activeToolId === 'resizer' || activeToolId === 'scans' || activeToolId === 'library' || (isMobile && activeToolId === 'image-resizer') || (isMobile && activeToolId === 'pdf-merge') || (isMobile && activeToolId === 'converter' && Boolean(options.converterMode))
                 ? 'p-0 bg-surface-bg overflow-hidden h-full'
                 : `bg-surface-bg overflow-y-auto pl-[var(--safe-area-left)] pr-[var(--safe-area-right)] ${
                     isMobile
                       ? 'pb-[calc(4.5rem+var(--safe-area-bottom))] lg:pb-0'
-                      : 'pb-10 lg:pb-0'
-                  } p-2 sm:p-3`
+                      : 'pb-6 lg:pb-6'
+                  } p-2 sm:p-3 lg:p-6`
             }`}
           >
             {activeToolId === 'scans' ? (
@@ -1341,9 +1498,11 @@ export const AppShell: React.FC = () => {
                   setCameraCapturedFiles([]);
                   setIsEditorOpen(true);
                 }}
+                onViewPdf={(blob, name) => setOpenedPdf({ blob, name })}
               />
             ) : activeToolId === 'library' ? (
               <LibraryView
+                onBack={() => requestSelectTool(previousToolIdRef.current || 'scans')}
                 onOpenInTool={handleOpenAssetInTool}
                 onResumeDraft={handleResumeDraft}
                 onViewPdf={(blob, name) => setOpenedPdf({ blob, name })}
@@ -1373,14 +1532,16 @@ export const AppShell: React.FC = () => {
                 onCancel={handleCancel}
                 selectedFileId={selectedFileId}
                 onSelectFile={setSelectedFileId}
+                onViewFile={handleViewFile}
+                onViewImages={handleViewImages}
                 onToggleSidebar={() => setIsSidebarOpenMobile(true)}
                 onOpenSettings={() => setIsSettingsOpen(true)}
               />
             )}
 
-            {/* Shift parameters below dropzone when there is less space (< lg) without overlapping anything (resizer uses bottom dock, mobile compressor embeds its own controls) */}
-            {shouldShowOptionsPanel && activeManifest && activeToolId !== 'resizer' && !(isMobile && activeToolId === 'image-resizer') && (
-              <div className="lg:hidden w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-10 pt-2 animate-in fade-in">
+            {/* Shift parameters below dropzone when there is less space (< lg) without overlapping anything (resizer, compressor, and pdf-merge embed their own controls on mobile) */}
+            {shouldShowOptionsPanel && activeManifest && activeToolId !== 'resizer' && !(isMobile && activeToolId === 'image-resizer') && !(isMobile && activeToolId === 'pdf-merge') && (
+              <div className={`lg:hidden w-full max-w-4xl mx-auto px-3 sm:px-6 lg:px-8 ${isKeyboardOpen ? 'pb-4' : 'pb-[calc(4.75rem+var(--safe-area-bottom))]'} pt-0 shrink-0 animate-in fade-in`}>
                 <OptionsPanel
                   tool={activeManifest}
                   files={files}
@@ -1393,6 +1554,10 @@ export const AppShell: React.FC = () => {
                   selectedFileId={selectedFileId}
                   onSelectFile={setSelectedFileId}
                   isInline={true}
+                  result={result}
+                  onDismissResult={() => setResult(null)}
+                  onViewFile={handleViewFile}
+                  onViewImages={handleViewImages}
                 />
               </div>
             )}
@@ -1412,11 +1577,16 @@ export const AppShell: React.FC = () => {
                 onExecute={handleExecute}
                 selectedFileId={selectedFileId}
                 onSelectFile={setSelectedFileId}
+                result={result}
+                onDismissResult={() => setResult(null)}
+                onViewFile={handleViewFile}
+                onViewImages={handleViewImages}
               />
             </div>
           )}
         </div>
       </div>
+    </div>
 
       {/* Hidden file inputs for Mobile Quick Scan Modal */}
       <input
@@ -1517,8 +1687,33 @@ export const AppShell: React.FC = () => {
         className="hidden"
       />
 
-      {/* Mobile Bottom Navigation Bar (Visible ONLY on mobile devices < lg, NEVER on desktop apps) */}
-      {isMobile && (
+      {/* Hidden input for Image Resizer Change Photo */}
+      <input
+        ref={resizerFileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/avif,image/bmp,image/tiff,image/*"
+        onChange={async (e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            const file = e.target.files[0];
+            const buffer = await file.arrayBuffer();
+            const processed: ProcessedFile = {
+              id: `f_resizer_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+              name: file.name,
+              size: file.size,
+              type: file.type || 'image/jpeg',
+              lastModified: file.lastModified,
+              data: buffer,
+            };
+            if (result) setResult(null);
+            setFiles([processed]);
+          }
+          e.target.value = '';
+        }}
+        className="hidden"
+      />
+
+      {/* Mobile Bottom Navigation Bar (Visible on mobile devices < lg, NEVER on desktop apps, hidden when in Library) */}
+      {isMobile && activeToolId !== 'library' && (
         <MobileNavBar
           activeToolId={activeToolId}
           onSelectTool={(id) => {
@@ -1533,6 +1728,7 @@ export const AppShell: React.FC = () => {
             setIsCameraOpen(true);
           }}
           isScanningOrEditing={isCameraOpen || isEditorOpen}
+          isKeyboardOpen={isKeyboardOpen}
         />
       )}
 
@@ -1623,7 +1819,7 @@ export const AppShell: React.FC = () => {
                 section: 'recent' as LibrarySection,
                 category: 'conversion' as LibraryCategory,
               };
-              await addAssetsToLibraryWithToast([processed], 'Saved to Recently Processed');
+              await addAssetsToLibraryWithToast([processed], 'Saved to Recents');
             } catch (err) {
               console.error('Failed to add scan PDF to library:', err);
             }

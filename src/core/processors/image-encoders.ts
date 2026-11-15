@@ -170,9 +170,15 @@ export function applyMonochrome(data: Uint8ClampedArray, threshold = 160): void 
 
 /**
  * Parses user-specified page range strings such as "1-3, 5, 7" into a list of 1-based page indices.
+ * Strictly blocks invalid characters (e.g. 4*8) and out-of-range bounds (e.g. 3-18 on 2 pages).
  */
 export function parsePageRange(rangeStr: string, totalPages: number): number[] {
   if (!rangeStr || !rangeStr.trim()) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+
+  // If string contains non-range characters, fallback to all pages
+  if (/[^0-9,\- ]/.test(rangeStr)) {
     return Array.from({ length: totalPages }, (_, i) => i + 1);
   }
 
@@ -184,22 +190,24 @@ export function parsePageRange(rangeStr: string, totalPages: number): number[] {
     if (!trimmed) continue;
 
     if (trimmed.includes('-')) {
-      const [startStr, endStr] = trimmed.split('-');
-      const start = parseInt(startStr.trim(), 10);
-      const end = parseInt(endStr.trim(), 10);
+      const hyphenParts = trimmed.split('-');
+      if (hyphenParts.length !== 2) return []; // Malformed like "1-2-3"
+      const start = parseInt(hyphenParts[0].trim(), 10);
+      const end = parseInt(hyphenParts[1].trim(), 10);
 
-      if (!isNaN(start) && !isNaN(end)) {
-        const min = Math.max(1, Math.min(start, end));
-        const max = Math.min(totalPages, Math.max(start, end));
-        for (let p = min; p <= max; p++) {
-          pages.add(p);
-        }
+      if (isNaN(start) || isNaN(end) || start < 1 || end < 1) return [];
+      // If either end is out-of-bounds for the document (e.g. 3-18 on a 2-page document), reject
+      if (start > totalPages || end > totalPages) return [];
+
+      const min = Math.min(start, end);
+      const max = Math.max(start, end);
+      for (let p = min; p <= max; p++) {
+        pages.add(p);
       }
     } else {
       const p = parseInt(trimmed, 10);
-      if (!isNaN(p) && p >= 1 && p <= totalPages) {
-        pages.add(p);
-      }
+      if (isNaN(p) || p < 1 || p > totalPages) return [];
+      pages.add(p);
     }
   }
 

@@ -22,6 +22,8 @@ export interface ToolProps {
   onCancel: () => void;
   selectedFileId?: string | null;
   onSelectFile?: (id: string | null) => void;
+  onViewFile?: (file: ProcessedFile) => void;
+  onViewImages?: (images: import('../../components/ui/ImageGalleryModal').GalleryItem[], initialIndex?: number) => void;
   onToggleSidebar?: () => void;
   onOpenSettings?: () => void;
 }

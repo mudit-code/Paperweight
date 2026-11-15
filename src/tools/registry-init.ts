@@ -55,7 +55,7 @@ export function initializeToolRegistry(): void {
         options: [
           { label: 'PDF to Image', value: 'pdf-to-img' },
           { label: 'Image to PDF', value: 'img-to-pdf' },
-          { label: 'Image to Any Format', value: 'img-to-img' },
+          { label: 'Convert images', value: 'img-to-img' },
           ...(FEATURE_FLAGS.ENABLE_OFFICE_CONVERTER
             ? [
                 { label: 'Word to PDF (.docx)', value: 'word-to-pdf' },
