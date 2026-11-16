@@ -142,6 +142,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <nav class="header-nav" aria-label="Primary navigation">
           <a href="#features" class="header-link">Features</a>
           <a href="#privacy" class="header-link">Privacy</a>
+          <a href="app/?mode=online&tool=compress" class="header-link" id="nav-online-link">Online Mode</a>
           <a href="#download" class="header-link">Download</a>
           <a href="#download" class="header-link">Checksums</a>
         </nav>
@@ -157,7 +158,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             </svg>
             <span class="theme-label" data-theme-label>Light</span>
           </button>
-          <a href="#download" class="btn btn-outline btn-pill">Download</a>
+          <a href="app/?mode=online&tool=compress" id="header-online-cta" class="btn btn-gold btn-pill">Use Online</a>
         </div>
       </div>
     </header>
@@ -173,8 +174,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <div class="hero-cta-row">
               <a href="https://github.com/mudit-code/Paperweight/releases/download/v0.2.35/Paperweight-v0.2.35.apk" download class="btn btn-gold">Download for Android</a>
               <a href="https://github.com/mudit-code/Paperweight/releases/download/v0.2.35/Paperweight.Setup.0.2.35.exe" download class="btn btn-outline">Download for Windows</a>
+              <a href="app/?mode=online&tool=compress" id="hero-online-btn" class="btn btn-online-full">
+                <span class="online-dot"></span>
+                <span id="hero-online-text">Use Compress Online (in browser)</span>
+              </a>
             </div>
-            <div class="mono hero-note">v0.2.35 · Free · APK (8.37 MB) · Windows EXE (139.52 MB)</div>
+            <div class="mono hero-note">v0.2.35 · Free · Android + Windows · 100% in-browser online mode</div>
           </div>
 
           <div class="hero-showcase-wrap">
@@ -213,7 +218,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
                         <div class="deck-tool-title">Smart Target Compressor</div>
                         <div class="deck-tool-sub">PDF · JPEG · PNG · WebP</div>
                       </div>
-                      <span class="deck-badge gold">Target Size Mode</span>
+                      <div class="deck-header-actions">
+                        <span class="deck-badge gold">Target Size Mode</span>
+                        <a href="app/?mode=online&tool=compress" class="deck-launch-btn">Use Online →</a>
+                      </div>
                     </div>
                     <div class="deck-spec-grid">
                       <div class="spec-cell">
@@ -251,7 +259,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
                         <div class="deck-tool-title">Dimension Resizer & Cropper</div>
                         <div class="deck-tool-sub">Pixels · Centimeters · Inches</div>
                       </div>
-                      <span class="deck-badge">Aspect Lock</span>
+                      <div class="deck-header-actions">
+                        <span class="deck-badge">Aspect Lock</span>
+                        <a href="app/?mode=online&tool=resize" class="deck-launch-btn">Use Online →</a>
+                      </div>
                     </div>
                     <div class="deck-spec-grid">
                       <div class="spec-cell">
@@ -289,7 +300,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
                         <div class="deck-tool-title">Multi-Page Document Scanner</div>
                         <div class="deck-tool-sub">Camera Viewfinder · Gallery Import</div>
                       </div>
-                      <span class="deck-badge gold">Auto Enhance</span>
+                      <div class="deck-header-actions">
+                        <span class="deck-badge gold">Auto Enhance</span>
+                        <a href="app/?mode=online&tool=scans" class="deck-launch-btn">Use Online →</a>
+                      </div>
                     </div>
                     <div class="deck-spec-grid">
                       <div class="spec-cell">
@@ -327,7 +341,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
                         <div class="deck-tool-title">Universal Format Converter</div>
                         <div class="deck-tool-sub">PDF ⇄ Images · Image ⇄ Image</div>
                       </div>
-                      <span class="deck-badge">Two-Way</span>
+                      <div class="deck-header-actions">
+                        <span class="deck-badge">Two-Way</span>
+                        <a href="app/?mode=online&tool=convert" class="deck-launch-btn">Use Online →</a>
+                      </div>
                     </div>
                     <div class="deck-spec-grid">
                       <div class="spec-cell">
@@ -365,7 +382,10 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
                         <div class="deck-tool-title">PDF & Image Merger</div>
                         <div class="deck-tool-sub">Reorder · Combine · Export</div>
                       </div>
-                      <span class="deck-badge gold">Interactive Reorder</span>
+                      <div class="deck-header-actions">
+                        <span class="deck-badge gold">Interactive Reorder</span>
+                        <a href="app/?mode=online&tool=merge" class="deck-launch-btn">Use Online →</a>
+                      </div>
                     </div>
                     <div class="deck-spec-grid">
                       <div class="spec-cell">
@@ -521,14 +541,35 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   </div>
 
   <script>
-    // Interactive Tool Showcase Tabs
+    // Interactive Tool Showcase Tabs & Online Link Sync
+    var heroOnlineBtn = document.getElementById('hero-online-btn');
+    var heroOnlineText = document.getElementById('hero-online-text');
+    var headerOnlineCta = document.getElementById('header-online-cta');
+    var navOnlineLink = document.getElementById('nav-online-link');
+
+    var toolLabels = {
+      compress: 'Compress',
+      resize: 'Resize',
+      scans: 'Scans',
+      convert: 'Convert',
+      merge: 'Merge'
+    };
+
     document.querySelectorAll('.deck-tab').forEach(function (tab) {
       tab.addEventListener('click', function () {
+        var tabId = tab.getAttribute('data-tab');
         document.querySelectorAll('.deck-tab').forEach(function (t) { t.classList.remove('active'); });
         document.querySelectorAll('.deck-pane').forEach(function (p) { p.classList.remove('active'); });
         tab.classList.add('active');
-        var target = document.getElementById('pane-' + tab.getAttribute('data-tab'));
+        var target = document.getElementById('pane-' + tabId);
         if (target) target.classList.add('active');
+
+        // Dynamically update online mode links so the chosen mode stays consistent
+        var onlineUrl = 'app/?mode=online&tool=' + tabId;
+        if (heroOnlineBtn) heroOnlineBtn.setAttribute('href', onlineUrl);
+        if (heroOnlineText) heroOnlineText.textContent = 'Use ' + (toolLabels[tabId] || 'Tool') + ' Online (in browser)';
+        if (headerOnlineCta) headerOnlineCta.setAttribute('href', onlineUrl);
+        if (navOnlineLink) navOnlineLink.setAttribute('href', onlineUrl);
       });
     });
 

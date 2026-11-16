@@ -78,6 +78,44 @@ function base64ToBlob(base64Data: string, mimeType = 'application/pdf'): Blob {
 }
 
 export const AppShell: React.FC = () => {
+  // Detect if running in online mode (from downloader website or with online query params)
+  const [onlineConfig] = useState(() => {
+    if (typeof window === 'undefined') return { isOnlineMode: false, targetTool: null };
+    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash.replace('#', '').trim();
+    const rawTool = params.get('tool') || (hash && !hash.startsWith('/') ? hash : null);
+    const rawMode = params.get('mode');
+
+    const isOnline =
+      rawMode === 'online' ||
+      params.has('online') ||
+      Boolean(rawTool) ||
+      window.location.pathname.includes('/app') ||
+      window.location.hostname.endsWith('github.io');
+
+    const toolAliases: Record<string, string> = {
+      compress: 'image-resizer',
+      compressor: 'image-resizer',
+      'image-resizer': 'image-resizer',
+      resize: 'resizer',
+      resizer: 'resizer',
+      crop: 'resizer',
+      scans: 'scans',
+      scan: 'scans',
+      scanner: 'scans',
+      convert: 'converter',
+      converter: 'converter',
+      merge: 'pdf-merge',
+      merger: 'pdf-merge',
+      'pdf-merge': 'pdf-merge',
+    };
+
+    const targetTool = rawTool && toolAliases[rawTool.toLowerCase()] ? toolAliases[rawTool.toLowerCase()] : null;
+    return { isOnlineMode: isOnline, targetTool };
+  });
+
+  const isOnlineMode = onlineConfig.isOnlineMode;
+
   // Detect if running on Electron desktop app
   const isElectron =
     typeof window !== 'undefined' && Boolean((window as unknown as { electronAPI?: unknown }).electronAPI);
@@ -86,8 +124,13 @@ export const AppShell: React.FC = () => {
   const isMobile = isMobileApp() && !isElectron;
 
   const [tools, setTools] = useState<ToolManifest[]>(() => toolRegistry.getAll());
-  const [activeToolId, setActiveToolId] = useState<string>('scans');
-  const previousToolIdRef = useRef<string>('scans');
+  const [activeToolId, setActiveToolId] = useState<string>(() => {
+    if (onlineConfig.isOnlineMode) {
+      return onlineConfig.targetTool || 'image-resizer';
+    }
+    return 'scans';
+  });
+  const previousToolIdRef = useRef<string>(onlineConfig.isOnlineMode ? (onlineConfig.targetTool || 'image-resizer') : 'scans');
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState<boolean>(false);
   const [isOptionsOpenMobile, setIsOptionsOpenMobile] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
@@ -826,6 +869,10 @@ export const AppShell: React.FC = () => {
   };
 
   const requestSelectTool = (targetId: string) => {
+    if (isOnlineMode) {
+      // In online mode, lock strictly to the mode chosen on the downloader website
+      return;
+    }
     if (targetId === activeToolId) return;
 
     if (activeToolId !== 'library') {
@@ -1152,61 +1199,63 @@ export const AppShell: React.FC = () => {
       setResult(batchResult);
       lastSavedSignatureRef.current = buildWorkspaceSignature(files, options);
 
-      // Auto-save produced image or PDF to Library -> Recently Processed
-      try {
-        const category = mapToolToLibraryCategory(activeToolId);
-        const producedToSave: Array<{
-          name: string;
-          type: string;
-          size: number;
-          data: ArrayBuffer;
-          section: LibrarySection;
-          category: LibraryCategory;
-        }> = [];
+      // Auto-save produced image or PDF to Library -> Recently Processed (Disabled in online mode)
+      if (!isOnlineMode) {
+        try {
+          const category = mapToolToLibraryCategory(activeToolId);
+          const producedToSave: Array<{
+            name: string;
+            type: string;
+            size: number;
+            data: ArrayBuffer;
+            section: LibrarySection;
+            category: LibraryCategory;
+          }> = [];
 
-        if (batchResult.items && batchResult.items.length > 0) {
-          for (const item of batchResult.items) {
-            if (item.blob) {
-              const buffer = await item.blob.arrayBuffer();
-              producedToSave.push({
-                name: item.name || 'processed_asset',
-                type: item.blob.type || (item.fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'),
-                size: item.compressedSize || item.blob.size,
-                data: buffer,
-                section: 'recent',
-                category,
-              });
+          if (batchResult.items && batchResult.items.length > 0) {
+            for (const item of batchResult.items) {
+              if (item.blob) {
+                const buffer = await item.blob.arrayBuffer();
+                producedToSave.push({
+                  name: item.name || 'processed_asset',
+                  type: item.blob.type || (item.fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'),
+                  size: item.compressedSize || item.blob.size,
+                  data: buffer,
+                  section: 'recent',
+                  category,
+                });
+              }
             }
+          } else if (batchResult.blob) {
+            const buffer = await batchResult.blob.arrayBuffer();
+            producedToSave.push({
+              name: batchResult.filename || 'processed_asset',
+              type: batchResult.blob.type || (batchResult.fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'),
+              size: batchResult.size || batchResult.blob.size,
+              data: buffer,
+              section: 'recent',
+              category,
+            });
           }
-        } else if (batchResult.blob) {
-          const buffer = await batchResult.blob.arrayBuffer();
-          producedToSave.push({
-            name: batchResult.filename || 'processed_asset',
-            type: batchResult.blob.type || (batchResult.fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'),
-            size: batchResult.size || batchResult.blob.size,
-            data: buffer,
-            section: 'recent',
-            category,
-          });
-        }
 
-        if (producedToSave.length > 0) {
-          await addAssetsToLibraryWithToast(
-            producedToSave,
-            producedToSave.length === 1
-              ? 'Saved to Recents'
-              : `${producedToSave.length} items saved to Recents`
-          );
-        }
+          if (producedToSave.length > 0) {
+            await addAssetsToLibraryWithToast(
+              producedToSave,
+              producedToSave.length === 1
+                ? 'Saved to Recents'
+                : `${producedToSave.length} items saved to Recents`
+            );
+          }
 
-        if (activeDraftId) {
-          await deleteLibraryAssets([activeDraftId]);
-          const count = await getLibraryAssetCount();
-          setLibraryAssetCount(count);
-          setActiveDraftId(null);
+          if (activeDraftId) {
+            await deleteLibraryAssets([activeDraftId]);
+            const count = await getLibraryAssetCount();
+            setLibraryAssetCount(count);
+            setActiveDraftId(null);
+          }
+        } catch (saveErr) {
+          console.error('Auto-save to library failed:', saveErr);
         }
-      } catch (saveErr) {
-        console.error('Auto-save to library failed:', saveErr);
       }
 
       // Allow smooth transition to reach 100% before dismissing progress display
@@ -1422,15 +1471,17 @@ export const AppShell: React.FC = () => {
     <div className="fixed inset-0 flex flex-col h-full w-full overflow-hidden bg-surface-bg text-text-main font-sans">
       {/* Main Workspace Frame */}
       <div className="flex flex-1 overflow-hidden min-h-0 relative">
-        {/* Left Persistent Tools Sidebar (Full height) */}
-        <Sidebar
-          tools={tools}
-          activeToolId={activeToolId}
-          onSelectTool={requestSelectTool}
-          isOpenMobile={isSidebarOpenMobile}
-          onCloseMobile={() => setIsSidebarOpenMobile(false)}
-          libraryCount={libraryAssetCount}
-        />
+        {/* Left Persistent Tools Sidebar (Hidden in online mode to lock chosen tool) */}
+        {!isOnlineMode && (
+          <Sidebar
+            tools={tools}
+            activeToolId={activeToolId}
+            onSelectTool={requestSelectTool}
+            isOpenMobile={isSidebarOpenMobile}
+            onCloseMobile={() => setIsSidebarOpenMobile(false)}
+            libraryCount={libraryAssetCount}
+          />
+        )}
 
         {/* Right Column: Top Header + Workspace Canvas (Hidden during full-screen camera/editor scanning) */}
         <div className={`flex-1 flex flex-col min-w-0 h-full overflow-hidden ${isScanningOrEditing ? 'hidden' : ''}`}>
@@ -1440,10 +1491,11 @@ export const AppShell: React.FC = () => {
             <Header
               activeToolName={getToolDisplayName()}
               hasOptionsPanel={shouldShowOptionsPanel}
-              onOpenSettings={() => setIsSettingsOpen(true)}
-              onOpenLibrary={() => requestSelectTool('library')}
+              isOnlineMode={isOnlineMode}
+              onOpenSettings={isOnlineMode ? undefined : () => setIsSettingsOpen(true)}
+              onOpenLibrary={isOnlineMode ? undefined : () => requestSelectTool('library')}
               libraryCount={libraryAssetCount}
-              onToggleSidebar={isMobileApp() ? undefined : () => setIsSidebarOpenMobile(true)}
+              onToggleSidebar={isOnlineMode || isMobileApp() ? undefined : () => setIsSidebarOpenMobile(true)}
               canGoBack={canGoBack}
               onBack={handleHeaderBack}
               backTooltip={
@@ -1498,21 +1550,21 @@ export const AppShell: React.FC = () => {
                   setCameraCapturedFiles([]);
                   setIsEditorOpen(true);
                 }}
-                onViewPdf={(blob, name) => setOpenedPdf({ blob, name })}
+                onViewPdf={isOnlineMode ? undefined : (blob, name) => setOpenedPdf({ blob, name })}
               />
             ) : activeToolId === 'library' ? (
               <LibraryView
                 onBack={() => requestSelectTool(previousToolIdRef.current || 'scans')}
                 onOpenInTool={handleOpenAssetInTool}
                 onResumeDraft={handleResumeDraft}
-                onViewPdf={(blob, name) => setOpenedPdf({ blob, name })}
-                onViewImages={(images, initialIndex = 0) => {
+                onViewPdf={isOnlineMode ? undefined : (blob, name) => setOpenedPdf({ blob, name })}
+                onViewImages={isOnlineMode ? undefined : (images, initialIndex = 0) => {
                   setGalleryImages(images);
                   setGalleryInitialIndex(initialIndex);
                   setIsGalleryOpen(true);
                 }}
-                onOpenSettings={() => setIsSettingsOpen(true)}
-                onToggleSidebar={isMobileApp() ? undefined : () => setIsSidebarOpenMobile(true)}
+                onOpenSettings={isOnlineMode ? undefined : () => setIsSettingsOpen(true)}
+                onToggleSidebar={isOnlineMode || isMobileApp() ? undefined : () => setIsSidebarOpenMobile(true)}
                 onAssetCountChange={setLibraryAssetCount}
               />
             ) : (
@@ -1532,10 +1584,10 @@ export const AppShell: React.FC = () => {
                 onCancel={handleCancel}
                 selectedFileId={selectedFileId}
                 onSelectFile={setSelectedFileId}
-                onViewFile={handleViewFile}
-                onViewImages={handleViewImages}
-                onToggleSidebar={() => setIsSidebarOpenMobile(true)}
-                onOpenSettings={() => setIsSettingsOpen(true)}
+                onViewFile={isOnlineMode ? undefined : handleViewFile}
+                onViewImages={isOnlineMode ? undefined : handleViewImages}
+                onToggleSidebar={isOnlineMode ? undefined : () => setIsSidebarOpenMobile(true)}
+                onOpenSettings={isOnlineMode ? undefined : () => setIsSettingsOpen(true)}
               />
             )}
 
@@ -1556,8 +1608,8 @@ export const AppShell: React.FC = () => {
                   isInline={true}
                   result={result}
                   onDismissResult={() => setResult(null)}
-                  onViewFile={handleViewFile}
-                  onViewImages={handleViewImages}
+                  onViewFile={isOnlineMode ? undefined : handleViewFile}
+                  onViewImages={isOnlineMode ? undefined : handleViewImages}
                 />
               </div>
             )}
@@ -1579,8 +1631,8 @@ export const AppShell: React.FC = () => {
                 onSelectFile={setSelectedFileId}
                 result={result}
                 onDismissResult={() => setResult(null)}
-                onViewFile={handleViewFile}
-                onViewImages={handleViewImages}
+                onViewFile={isOnlineMode ? undefined : handleViewFile}
+                onViewImages={isOnlineMode ? undefined : handleViewImages}
               />
             </div>
           )}
@@ -1712,8 +1764,8 @@ export const AppShell: React.FC = () => {
         className="hidden"
       />
 
-      {/* Mobile Bottom Navigation Bar (Visible on mobile devices < lg, NEVER on desktop apps, hidden when in Library) */}
-      {isMobile && activeToolId !== 'library' && (
+      {/* Mobile Bottom Navigation Bar (Visible on mobile devices < lg, NEVER on desktop apps, hidden when in Library or Online Mode) */}
+      {!isOnlineMode && isMobile && activeToolId !== 'library' && (
         <MobileNavBar
           activeToolId={activeToolId}
           onSelectTool={(id) => {
@@ -1732,11 +1784,13 @@ export const AppShell: React.FC = () => {
         />
       )}
 
-      {/* Settings Modal (Theme, Offline Security, Info) */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-      />
+      {/* Settings Modal (Theme, Offline Security, Info) - Disabled in Online Mode */}
+      {!isOnlineMode && (
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+        />
+      )}
 
       {/* Screen 1: Camera Scanner Overlay (Rear camera only, 5 icons, multi-page append) */}
       <CameraViewfinder
@@ -1808,7 +1862,7 @@ export const AppShell: React.FC = () => {
           }
         }}
         onSavePdf={async (pdfBlob, filename) => {
-          if (pdfBlob) {
+          if (pdfBlob && !isOnlineMode) {
             try {
               const buffer = await pdfBlob.arrayBuffer();
               const processed = {
@@ -1836,48 +1890,56 @@ export const AppShell: React.FC = () => {
         }}
       />
 
-      {/* Global In-App PDF Viewer */}
-      <PdfViewerModal
-        isOpen={Boolean(openedPdf) || isOpeningIncomingPdf}
-        onClose={() => {
-          setOpenedPdf(null);
-          setIsOpeningIncomingPdf(false);
-        }}
-        pdfBlob={openedPdf?.blob ?? null}
-        fileName={openedPdf?.name || initialPendingPdfName || 'Document.pdf'}
-        onCompress={handleCompressPdfFromViewer}
-      />
+      {/* Global In-App PDF Viewer - Disabled in Online Mode */}
+      {!isOnlineMode && (
+        <PdfViewerModal
+          isOpen={Boolean(openedPdf) || isOpeningIncomingPdf}
+          onClose={() => {
+            setOpenedPdf(null);
+            setIsOpeningIncomingPdf(false);
+          }}
+          pdfBlob={openedPdf?.blob ?? null}
+          fileName={openedPdf?.name || initialPendingPdfName || 'Document.pdf'}
+          onCompress={handleCompressPdfFromViewer}
+        />
+      )}
 
-      {/* Global Image Gallery Viewer */}
-      <ImageGalleryModal
-        isOpen={isGalleryOpen}
-        onClose={() => setIsGalleryOpen(false)}
-        images={galleryImages}
-        initialIndex={galleryInitialIndex}
-        onCompressImage={handleCompressImageFromGallery}
-        onResizeImage={handleResizeImageFromGallery}
-        onConvertImagesToPdf={handleConvertImagesFromGallery}
-        onAddImages={(newItems) => setGalleryImages((prev) => [...prev, ...newItems])}
-        onRemoveImage={(id) => setGalleryImages((prev) => prev.filter((it) => it.id !== id))}
-      />
+      {/* Global Image Gallery Viewer - Disabled in Online Mode */}
+      {!isOnlineMode && (
+        <ImageGalleryModal
+          isOpen={isGalleryOpen}
+          onClose={() => setIsGalleryOpen(false)}
+          images={galleryImages}
+          initialIndex={galleryInitialIndex}
+          onCompressImage={handleCompressImageFromGallery}
+          onResizeImage={handleResizeImageFromGallery}
+          onConvertImagesToPdf={handleConvertImagesFromGallery}
+          onAddImages={(newItems) => setGalleryImages((prev) => [...prev, ...newItems])}
+          onRemoveImage={(id) => setGalleryImages((prev) => prev.filter((it) => it.id !== id))}
+        />
+      )}
 
-      {/* Confirmation modal for quitting work and moving assets to Library */}
-      <MoveToLibraryModal
-        isOpen={isMoveToLibraryOpen}
-        actionWording={getActionWording()}
-        itemCount={files.length}
-        onExitAndMove={handleConfirmExitAndMove}
-        onExitWithoutSaving={handleConfirmExitWithoutSaving}
-        onCancel={handleCancelMoveToLibrary}
-      />
+      {/* Confirmation modal for quitting work and moving assets to Library - Disabled in Online Mode */}
+      {!isOnlineMode && (
+        <MoveToLibraryModal
+          isOpen={isMoveToLibraryOpen}
+          actionWording={getActionWording()}
+          itemCount={files.length}
+          onExitAndMove={handleConfirmExitAndMove}
+          onExitWithoutSaving={handleConfirmExitWithoutSaving}
+          onCancel={handleCancelMoveToLibrary}
+        />
+      )}
 
-      {/* Gmail-style Library Toast Notification with 5s Undo & Dismiss */}
-      <LibraryToast
-        isOpen={libraryToast.isOpen}
-        message={libraryToast.message}
-        onUndo={handleUndoLibraryToast}
-        onClose={() => setLibraryToast((prev) => ({ ...prev, isOpen: false }))}
-      />
+      {/* Gmail-style Library Toast Notification with 5s Undo & Dismiss - Disabled in Online Mode */}
+      {!isOnlineMode && (
+        <LibraryToast
+          isOpen={libraryToast.isOpen}
+          message={libraryToast.message}
+          onUndo={handleUndoLibraryToast}
+          onClose={() => setLibraryToast((prev) => ({ ...prev, isOpen: false }))}
+        />
+      )}
 
       {/* PWA Prompt-based Service Worker Update Notification */}
       <PWAUpdateToast />
