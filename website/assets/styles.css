@@ -327,10 +327,19 @@ a {
   font-weight: 700;
 }
 
+.deck-content-pane {
+  min-height: 226px;
+  display: flex;
+  flex-direction: column;
+}
+
 .deck-pane {
   display: none;
   flex-direction: column;
+  justify-content: space-between;
   gap: 14px;
+  min-height: 226px;
+  height: 100%;
 }
 
 .deck-pane.active {
@@ -418,6 +427,7 @@ a {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  margin-top: auto;
 }
 
 .demo-slider-row {
