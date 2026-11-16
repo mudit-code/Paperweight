@@ -1,7 +1,7 @@
 {
   "name": "paperweight",
   "private": true,
-  "version": "0.2.32",
+  "version": "0.2.33",
   "description": "Offline document and image workspace. Convert, compress, resize, and scan — runs fully on your device.",
   "author": "Paperweight",
   "type": "module",

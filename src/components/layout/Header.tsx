@@ -53,7 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           {isMobile ? (
             canGoBack && onBack ? (
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 h-9">
                 <button
                   type="button"
                   onClick={onBack}
@@ -65,15 +65,15 @@ export const Header: React.FC<HeaderProps> = ({
                   <span>Back</span>
                 </button>
                 {activeToolName && (
-                  <span className="text-sm font-semibold text-text-main truncate max-w-[120px]">
+                  <span className="text-sm font-bold text-text-main truncate max-w-[120px]">
                     {activeToolName}
                   </span>
                 )}
               </div>
             ) : (
-              <div className="flex items-center gap-2 min-w-0">
-                <BrandLogo size={20} className="w-5 h-5 rounded-xs shrink-0 shadow-2xs" />
-                <span className="text-sm font-semibold text-text-main truncate max-w-[130px]">
+              <div className="flex items-center gap-2.5 min-w-0 h-9">
+                <BrandLogo size={28} className="w-7 h-7 rounded-xs shrink-0 shadow-xs" />
+                <span className="text-base font-bold text-text-main tracking-tight truncate max-w-[130px] sm:max-w-[180px] leading-none">
                   {activeToolName || 'Paperweight'}
                 </span>
               </div>
