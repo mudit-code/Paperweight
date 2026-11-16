@@ -111,8 +111,8 @@ const ImageResizerTool: React.FC<ToolProps> = ({
   };
 
   const handleSelectMode = (mode: CompressorMode) => {
-    const currentMode = selectedMode || activeDesktopMode;
-    if (mode === currentMode) return;
+    if (selectedMode !== null && mode === selectedMode) return;
+    if (!isMobile && mode === activeDesktopMode) return;
 
     if (files.length > 0 && !result) {
       setPendingSwitchMode(mode);

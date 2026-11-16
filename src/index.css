@@ -48,6 +48,35 @@
 
 /* Base resets adhering strictly to design tokens */
 @layer base {
+  *, *::before, *::after {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  input,
+  textarea,
+  [contenteditable="true"],
+  .selectable-text,
+  .textLayer,
+  .textLayer * {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  html,
+  body,
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [role="button"],
+  [role="tab"] {
+    touch-action: manipulation;
+  }
+
   html {
     color-scheme: dark light;
     -webkit-tap-highlight-color: transparent;

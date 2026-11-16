@@ -36,6 +36,19 @@
         height: 100dvh;
         overflow: hidden;
       }
+      *, *::before, *::after {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      input, textarea, [contenteditable="true"], .selectable-text, .textLayer, .textLayer * {
+        -webkit-user-select: text;
+        user-select: text;
+      }
+      button, a, input, select, textarea, [role="button"], [role="tab"] {
+        touch-action: manipulation;
+      }
       html.light, html.light body {
         background-color: #E9E8E4 !important;
       }
@@ -104,7 +117,7 @@
       })();
     </script>
   </head>
-  <body class="bg-surface-bg text-text-main antialiased selection:bg-accent selection:text-accent-contrast">
+  <body class="bg-surface-bg text-text-main antialiased select-none">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
