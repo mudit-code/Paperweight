@@ -115,11 +115,26 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
     <header class="site-header">
       <div class="container header-inner">
         <a href="#" class="brand-link">
-          <svg class="brand-svg" width="36" height="36" viewBox="0 0 64 64" aria-hidden="true">
-            <rect class="logo-sheet-bottom" x="8" y="44" width="48" height="12" rx="3"></rect>
-            <rect class="logo-sheet-mid" x="12" y="38" width="40" height="10" rx="3"></rect>
-            <path class="logo-handle" d="M22 16V12a4 4 0 0 1 4-4h12a4 4 0 0 1 4 4v4" fill="none" stroke-width="5" stroke-linecap="round"></path>
-            <path class="logo-clamp" d="M18 18H46L52 38H12Z" stroke-width="3" stroke-linejoin="round"></path>
+          <svg class="brand-svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-label="Paperweight Logo">
+            <defs>
+              <linearGradient id="opt1Body" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#27272B"/>
+                <stop offset="1" stop-color="#151517"/>
+              </linearGradient>
+            </defs>
+            <rect width="32" height="32" rx="7" fill="#F2D14B" stroke="#151517" stroke-opacity="0.16" stroke-width="0.75"/>
+            <rect x="4" y="17.5" width="24" height="9.5" rx="1.5" fill="#E9E8E4" transform="rotate(-2 16 22)"/>
+            <rect x="4.5" y="18.5" width="23" height="8.5" rx="1.5" fill="#F7F5EF"/>
+            <rect x="6.5" y="20.5" width="4.5" height="4.5" rx="1" fill="#1F1F22"/>
+            <rect x="13" y="21" width="12" height="1.5" rx="0.75" fill="#A9A79F"/>
+            <rect x="13" y="23.5" width="8" height="1.5" rx="0.75" fill="#A9A79F"/>
+            <ellipse cx="16" cy="18.5" rx="11" ry="1.5" fill="#151517" opacity="0.45"/>
+            <path d="M12 12V8.5C12 6.6 13.8 5 16 5C18.2 5 20 6.6 20 8.5V12" fill="none" stroke="#1F1F22" stroke-width="2.6" stroke-linecap="round"/>
+            <path d="M13.5 8C14.2 6.8 15.1 6.2 16 6.2C16.9 6.2 17.8 6.8 18.5 8" fill="none" stroke="#6B6964" stroke-width="1.2" stroke-linecap="round"/>
+            <path d="M9.5 12H22.5L26 18.5H6L9.5 12Z" fill="url(#opt1Body)" stroke="#151517" stroke-width="0.75" stroke-linejoin="round"/>
+            <line x1="10" y1="12.5" x2="22" y2="12.5" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="0.9" stroke-linecap="round"/>
+            <path d="M14 14.5L16 16.5L18 14.5" fill="none" stroke="#F2D14B" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <line x1="16" y1="13.5" x2="16" y2="15" stroke="#F2D14B" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
           <span class="brand-name">Paperweight</span>
         </a>
@@ -127,7 +142,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <nav class="header-nav" aria-label="Primary navigation">
           <a href="#features" class="header-link">Features</a>
           <a href="#privacy" class="header-link">Privacy</a>
-          <a href="video.html" class="header-link">Walkthrough</a>
+          <a href="#download" class="header-link">Download</a>
           <a href="#download" class="header-link">Checksums</a>
         </nav>
 
@@ -162,26 +177,199 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <div class="mono hero-note">v0.2.35 · Free · APK (8.37 MB) · Windows EXE (139.52 MB)</div>
           </div>
 
-          <div class="hero-player-wrap">
-            <div class="player-card">
-              <div class="player-stage">
-                <canvas id="promo-canvas" aria-label="Paperweight interactive app walkthrough preview"></canvas>
-              </div>
-              <div class="player-bar">
-                <div id="promo-timeline" class="timeline-track" title="Seek preview">
-                  <div id="promo-progress" class="timeline-fill"></div>
+          <div class="hero-showcase-wrap">
+            <div class="showcase-card">
+              <!-- Window header -->
+              <div class="showcase-window-bar">
+                <div class="window-controls">
+                  <span class="win-dot close"></span>
+                  <span class="win-dot min"></span>
+                  <span class="win-dot max"></span>
                 </div>
-                <div class="player-bar-row">
-                  <div class="player-bar-left">
-                    <button type="button" id="promo-play-btn" class="ctrl-chip">⏸ Pause</button>
-                    <span id="promo-time" class="mono time-readout">0:00 / 0:36</span>
+                <div class="mono window-title">paperweight-core · v0.2.35</div>
+                <div class="window-status">
+                  <span class="status-pulse"></span>
+                  <span class="mono status-text">0 NET / OFFLINE</span>
+                </div>
+              </div>
+
+              <!-- Interactive Tools Deck -->
+              <div class="showcase-body">
+                <!-- Tool Switcher Tabs -->
+                <div class="deck-tabs" role="tablist">
+                  <button type="button" class="deck-tab active" data-tab="compress">Compress</button>
+                  <button type="button" class="deck-tab" data-tab="resize">Resize</button>
+                  <button type="button" class="deck-tab" data-tab="scans">Scans</button>
+                  <button type="button" class="deck-tab" data-tab="convert">Convert</button>
+                  <button type="button" class="deck-tab" data-tab="merge">Merge</button>
+                </div>
+
+                <!-- Live Tab Content Display -->
+                <div class="deck-content-pane">
+                  <!-- Compress View -->
+                  <div class="deck-pane active" id="pane-compress">
+                    <div class="deck-pane-header">
+                      <div>
+                        <div class="deck-tool-title">Smart Target Compressor</div>
+                        <div class="deck-tool-sub">PDF · JPEG · PNG · WebP</div>
+                      </div>
+                      <span class="deck-badge gold">Target Size Mode</span>
+                    </div>
+                    <div class="deck-spec-grid">
+                      <div class="spec-cell">
+                        <span class="mono spec-label">ALGORITHM</span>
+                        <span class="spec-val">Adaptive MozJPEG & UPNG</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">TARGET CONTROL</span>
+                        <span class="spec-val">Exact KB / MB Limit</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">BATCH OUTPUT</span>
+                        <span class="spec-val">Single, Multi, or ZIP</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">PRIVACY</span>
+                        <span class="spec-val">In-Memory Canvas Pool</span>
+                      </div>
+                    </div>
+                    <div class="deck-interactive-demo">
+                      <div class="demo-slider-row">
+                        <span class="mono demo-label">Simulated compression:</span>
+                        <span class="mono demo-value">84% smaller (12.4 MB → 1.98 MB)</span>
+                      </div>
+                      <div class="demo-bar-track">
+                        <div class="demo-bar-fill" style="width: 84%;"></div>
+                      </div>
+                    </div>
                   </div>
-                  <div class="player-bar-right">
-                    <a href="video.html" class="ctrl-chip">Watch cinema video →</a>
+
+                  <!-- Resize View -->
+                  <div class="deck-pane" id="pane-resize">
+                    <div class="deck-pane-header">
+                      <div>
+                        <div class="deck-tool-title">Dimension Resizer & Cropper</div>
+                        <div class="deck-tool-sub">Pixels · Centimeters · Inches</div>
+                      </div>
+                      <span class="deck-badge">Aspect Lock</span>
+                    </div>
+                    <div class="deck-spec-grid">
+                      <div class="spec-cell">
+                        <span class="mono spec-label">UNITS</span>
+                        <span class="spec-val">px · cm · in with DPI scaling</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">PRESETS</span>
+                        <span class="spec-val">Passport, Banner, 1:1, 4:5, 16:9</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">CROPPER</span>
+                        <span class="spec-val">Smooth 4-Corner Framing</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">INTERPOLATION</span>
+                        <span class="spec-val">Bicubic Native Sharpening</span>
+                      </div>
+                    </div>
                   </div>
+
+                  <!-- Scans View -->
+                  <div class="deck-pane" id="pane-scans">
+                    <div class="deck-pane-header">
+                      <div>
+                        <div class="deck-tool-title">Multi-Page Document Scanner</div>
+                        <div class="deck-tool-sub">Camera Viewfinder · Gallery Import</div>
+                      </div>
+                      <span class="deck-badge gold">Auto Enhance</span>
+                    </div>
+                    <div class="deck-spec-grid">
+                      <div class="spec-cell">
+                        <span class="mono spec-label">PROCESSING</span>
+                        <span class="spec-val">Auto Document Flattening</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">FILTERS</span>
+                        <span class="spec-val">B&W Doc, Grayscale, Color</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">MULTI-PAGE</span>
+                        <span class="spec-val">Append & Reorder Pages</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">EXPORT</span>
+                        <span class="spec-val">Clean Vector-Wrapped PDF</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Convert View -->
+                  <div class="deck-pane" id="pane-convert">
+                    <div class="deck-pane-header">
+                      <div>
+                        <div class="deck-tool-title">Universal Format Converter</div>
+                        <div class="deck-tool-sub">PDF ⇄ Images · Image ⇄ Image</div>
+                      </div>
+                      <span class="deck-badge">Two-Way</span>
+                    </div>
+                    <div class="deck-spec-grid">
+                      <div class="spec-cell">
+                        <span class="mono spec-label">PDF TO IMAGE</span>
+                        <span class="spec-val">Extract all pages to JPG/PNG/WebP</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">IMAGE TO PDF</span>
+                        <span class="spec-val">Package photos into single PDF</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">PACKAGING</span>
+                        <span class="spec-val">Instant ZIP archive</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">OFFLINE PARSER</span>
+                        <span class="spec-val">PDF.js WebAssembly</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Merge View -->
+                  <div class="deck-pane" id="pane-merge">
+                    <div class="deck-pane-header">
+                      <div>
+                        <div class="deck-tool-title">PDF & Image Merger</div>
+                        <div class="deck-tool-sub">Reorder · Combine · Export</div>
+                      </div>
+                      <span class="deck-badge gold">Interactive Reorder</span>
+                    </div>
+                    <div class="deck-spec-grid">
+                      <div class="spec-cell">
+                        <span class="mono spec-label">INPUTS</span>
+                        <span class="spec-val">Mix PDFs and photo files</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">REORDERING</span>
+                        <span class="spec-val">Drag-and-drop page cards</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">PREVIEW</span>
+                        <span class="spec-val">Instant page thumbnails</span>
+                      </div>
+                      <div class="spec-cell">
+                        <span class="mono spec-label">PERFORMANCE</span>
+                        <span class="spec-val">Fast binary-level merge</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Footer specs -->
+                <div class="deck-footer-bar">
+                  <span class="mono foot-tag">🔒 ZERO CLOUD CALLS</span>
+                  <span class="mono foot-tag">⚡ 60 FPS VIEWER</span>
+                  <span class="mono foot-tag">💾 LOCAL DRAFT STORAGE</span>
                 </div>
               </div>
             </div>
+            <div class="mono player-caption">Click any tool tab above to preview offline capabilities</div>
           </div>
         </div>
       </section>
@@ -286,7 +474,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div class="container footer-inner">
         <span>Paperweight · built by Mudit</span>
         <div class="footer-links">
-          <a href="video.html">Walkthrough Video</a>
+          <a href="https://github.com/mudit-code/Paperweight" target="_blank" rel="noopener">GitHub</a>
+          <a href="#features">Features</a>
           <a href="#privacy">Privacy</a>
           <a href="#download">Downloads</a>
         </div>
@@ -295,8 +484,19 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
   </div>
 
-  <script src="assets/motion-graphic.js"></script>
   <script>
+    // Interactive Tool Showcase Tabs
+    document.querySelectorAll('.deck-tab').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        document.querySelectorAll('.deck-tab').forEach(function (t) { t.classList.remove('active'); });
+        document.querySelectorAll('.deck-pane').forEach(function (p) { p.classList.remove('active'); });
+        tab.classList.add('active');
+        var target = document.getElementById('pane-' + tab.getAttribute('data-tab'));
+        if (target) target.classList.add('active');
+      });
+    });
+
+    // Copy SHA-256 Hash
     document.querySelectorAll('.copy-hash-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var el = document.getElementById(btn.getAttribute('data-copy-target'));
