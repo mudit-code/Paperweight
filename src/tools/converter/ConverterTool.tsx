@@ -178,9 +178,9 @@ export const ConverterTool: React.FC<ToolProps> = ({
     );
 
   return (
-    <div className={`flex-1 flex flex-col ${isMobile && selectedMode ? 'h-full min-h-0 overflow-hidden' : 'lg:h-full lg:overflow-hidden'} select-none`}>
-      {/* Scrollable Main Area on desktop lg, natural flow on small spaces */}
-      <div className={`flex-1 flex flex-col min-h-0 ${isMobile && selectedMode ? 'h-full p-3 pb-1 overflow-hidden' : 'lg:overflow-y-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4'}`}>
+    <div className={`flex-1 flex flex-col ${isMobile ? 'h-full overflow-hidden p-2 sm:p-3 pb-[calc(4.5rem+var(--safe-area-bottom))]' : 'lg:h-full lg:overflow-hidden select-none bg-surface-bg'}`}>
+      {/* Scrollable Main Area on desktop lg, fitted flex column on mobile */}
+      <div className={`flex-1 flex flex-col ${isMobile ? 'min-h-0 overflow-hidden' : 'lg:overflow-y-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4 min-h-0'}`}>
         {/* Error Alert */}
         {error && (
           <div
@@ -255,7 +255,7 @@ export const ConverterTool: React.FC<ToolProps> = ({
         {/* MOBILE (< md): Options hub when no mode chosen */}
         <div className={`md:hidden ${selectedMode ? 'flex-1 min-h-0 flex flex-col' : ''}`}>
           {!selectedMode ? (
-            <div className="w-full max-w-2xl mx-auto py-2 flex flex-col gap-3">
+            <div className="w-full max-w-2xl mx-auto py-2 sm:py-4 flex flex-col gap-3">
               {/* Unified 3-Row Card matching Compress hub */}
               <div className="rounded-sheet border border-surface-border bg-surface-panel divide-y divide-surface-border overflow-hidden shadow-2xs">
                 {CONVERTER_OPTIONS.map((opt) => {

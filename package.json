@@ -1,7 +1,7 @@
 {
   "name": "paperweight",
   "private": true,
-  "version": "0.2.33",
+  "version": "0.2.34",
   "description": "Offline document and image workspace. Convert, compress, resize, and scan — runs fully on your device.",
   "author": "Paperweight",
   "type": "module",
@@ -13,8 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "electron:dev": "npm run build && electron .",
-    "electron:build": "npm run build && electron-builder --config electron-builder.json",
-    "installer": "npm run build && node scripts/generate-installer-icons.mjs && electron-builder --config electron-builder.json",
+    "electron:build": "npm run build && electron-builder --config electron-builder.json && node scripts/sync-installer.mjs",
+    "installer": "npm run build && node scripts/generate-installer-icons.mjs && electron-builder --config electron-builder.json && node scripts/sync-installer.mjs",
     "apk": "npm run build && npx cap sync android && node scripts/build-apk.mjs",
     "assets": "node scripts/generate-all-assets.mjs",
     "website": "node scripts/serve-website.mjs"

@@ -1463,7 +1463,7 @@ export const AppShell: React.FC = () => {
           <main
             role="main"
             className={`flex-1 flex flex-col min-w-0 ${
-              activeToolId === 'resizer' || activeToolId === 'scans' || activeToolId === 'library' || (isMobile && activeToolId === 'image-resizer') || (isMobile && activeToolId === 'pdf-merge') || (isMobile && activeToolId === 'converter' && Boolean(options.converterMode))
+              activeToolId === 'resizer' || activeToolId === 'scans' || activeToolId === 'library' || (isMobile && activeToolId === 'image-resizer') || (isMobile && activeToolId === 'pdf-merge') || (isMobile && activeToolId === 'converter')
                 ? 'p-0 bg-surface-bg overflow-hidden h-full'
                 : `bg-surface-bg overflow-y-auto pl-[var(--safe-area-left)] pr-[var(--safe-area-right)] ${
                     isMobile

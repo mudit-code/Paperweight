@@ -51,8 +51,12 @@ if (!fs.existsSync(outputDir)) {
   // Remove any previous versions to avoid duplicate APKs
   const existingFiles = fs.readdirSync(outputDir);
   for (const f of existingFiles) {
-    if (f.endsWith('.apk') && !f.includes(`v${pkg.version}`)) {
-      fs.unlinkSync(path.join(outputDir, f));
+    const fullPath = path.join(outputDir, f);
+    if (fs.statSync(fullPath).isDirectory()) {
+      fs.rmSync(fullPath, { recursive: true, force: true });
+      console.log(`🧹 Removed directory: ${f}`);
+    } else if (f.endsWith('.apk') && !f.includes(`v${pkg.version}`)) {
+      fs.unlinkSync(fullPath);
       console.log(`🧹 Removed older APK: ${f}`);
     }
   }
@@ -64,7 +68,23 @@ fs.copyFileSync(sourceApk, targetApk);
 // Sync with website downloads if folder exists
 const websiteDownloads = path.join(rootDir, 'website', 'downloads');
 if (fs.existsSync(websiteDownloads)) {
-  fs.copyFileSync(targetApk, path.join(websiteDownloads, 'Paperweight-latest.apk'));
+  const dlFiles = fs.readdirSync(websiteDownloads);
+  for (const f of dlFiles) {
+    if (f.endsWith('.apk') && f !== 'Paperweight-latest.apk' && !f.includes(`v${pkg.version}`)) {
+      try {
+        fs.unlinkSync(path.join(websiteDownloads, f));
+        console.log(`🧹 Removed older APK from website/downloads: ${f}`);
+      } catch (err) {
+        console.warn(`Could not delete ${f}:`, err);
+      }
+    }
+  }
+
+  const latestApk = path.join(websiteDownloads, 'Paperweight-latest.apk');
+  const versionedApk = path.join(websiteDownloads, `Paperweight-v${pkg.version}.apk`);
+  fs.copyFileSync(targetApk, latestApk);
+  fs.copyFileSync(targetApk, versionedApk);
+  console.log(`✅ Synced ${pkg.version} APK to website/downloads: latest.apk and versioned apk`);
 }
 
 const stats = fs.statSync(targetApk);
