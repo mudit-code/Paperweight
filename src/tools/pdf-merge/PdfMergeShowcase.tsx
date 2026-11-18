@@ -19,7 +19,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { ProcessedFile } from '../../core/types';
 import type { BatchResult } from '../../core/processors/types';
-import { validateFile, validateBatchLimits, formatBytes } from '../../core/files/validation';
+import { validateFile, validateBatchLimits, formatBytes, readFileAsArrayBuffer } from '../../core/files/validation';
 import { toUserFacingError, type UserFacingError } from '../../core/errors';
 import { isMobileApp, downloadBlob } from '../../core/processors/download';
 import { Button } from '../../components/ui/Button';
@@ -199,7 +199,7 @@ export const PdfMergeShowcase: React.FC<PdfMergeShowcaseProps> = ({
         const processedItems: ProcessedFile[] = await Promise.all(
           fileArray.map(async (file) => {
             await validateFile(file, { acceptedMimes });
-            const buffer = await file.arrayBuffer();
+            const buffer = await readFileAsArrayBuffer(file);
 
             let previewUrl: string | undefined = undefined;
             if (file.type.startsWith('image/')) {

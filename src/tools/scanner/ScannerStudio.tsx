@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import type { ProcessedFile } from '../../core/types';
 import type { BatchResult } from '../../core/processors/types';
-import { formatBytes } from '../../core/files/validation';
+import { formatBytes, readFileAsArrayBuffer } from '../../core/files/validation';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { downloadBlob, saveMultipleBlobs, isMobileApp } from '../../core/processors';
@@ -119,7 +119,7 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
 
     const newItemsList: ProcessedFile[] = await Promise.all(
       updatedRaw.map(async (file, idx) => {
-        const buffer = await file.arrayBuffer();
+        const buffer = await readFileAsArrayBuffer(file);
         const previewUrl = updatedItems[idx]?.displayUrl || URL.createObjectURL(file);
         return {
           id: `scan_${Date.now()}_${idx}`,
@@ -167,7 +167,7 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
 
       const newItems: ProcessedFile[] = await Promise.all(
         list.map(async (file, idx) => {
-          const buffer = await file.arrayBuffer();
+          const buffer = await readFileAsArrayBuffer(file);
           let previewUrl: string | undefined = undefined;
           if (file.type.startsWith('image/')) {
             previewUrl = URL.createObjectURL(new Blob([buffer], { type: file.type }));
@@ -281,7 +281,7 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
               next[retakeIndex] = replacementItem;
               return next;
             });
-            const buffer = await replacement.arrayBuffer();
+            const buffer = await readFileAsArrayBuffer(replacement);
             const newFile: ProcessedFile = {
               id: `file_${Date.now()}_0_${Math.random().toString(36).substring(2, 7)}`,
               name: replacement.name,

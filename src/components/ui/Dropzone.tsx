@@ -1,7 +1,7 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { FolderPlus, FileIcon, X, AlertCircle, ArrowUp, ArrowDown, Loader2 } from 'lucide-react';
 import type { ProcessedFile } from '../../core/types';
-import { validateFile, validateBatchLimits, formatBytes } from '../../core/files/validation';
+import { validateFile, validateBatchLimits, formatBytes, readFileAsArrayBuffer } from '../../core/files/validation';
 import { toUserFacingError, type UserFacingError } from '../../core/errors';
 import { isMobileApp } from '../../core/processors/download';
 import { Button } from './Button';
@@ -64,7 +64,7 @@ export const Dropzone: React.FC<DropzoneProps> = ({
         const processed: ProcessedFile[] = await Promise.all(
           fileArray.map(async (file) => {
             await validateFile(file, { acceptedMimes });
-            const buffer = await file.arrayBuffer();
+            const buffer = await readFileAsArrayBuffer(file);
 
             let previewUrl: string | undefined = undefined;
             if (file.type.startsWith('image/')) {

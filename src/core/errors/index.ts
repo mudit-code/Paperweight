@@ -122,6 +122,21 @@ export function toUserFacingError(err: unknown, fallbackMessage = 'An unexpected
   }
 
   if (err instanceof Error) {
+    const msg = err.message || '';
+    const errName = err.name || '';
+    if (
+      errName === 'NotReadableError' ||
+      /not\s*readable|permission\s*problems|file\s*could\s*not\s*be\s*read/i.test(msg)
+    ) {
+      return {
+        code: 'ERR_FILE_NOT_READABLE',
+        title: 'File Access Restricted',
+        message: 'The selected file could not be read. On mobile, this occurs if a cloud photo is not yet downloaded locally or storage access was revoked.',
+        suggestion: 'Please tap "Choose files" again and pick a photo saved directly to your device gallery or storage.',
+        severity: 'error',
+      };
+    }
+
     // Prevent cryptic browser errors like NS_ERROR_FAILURE or Failed to fetch
     return {
       code: 'ERR_UNKNOWN',

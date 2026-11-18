@@ -18,7 +18,7 @@ import JSZip from 'jszip';
 import type { ProcessedFile, ProgressReport } from '../../core/types';
 import type { BatchResult, CompressedItemResult } from '../../core/processors/types';
 import type { SizeEstimate } from '../../core/processors/estimate-size';
-import { validateFile, validateBatchLimits, formatBytes } from '../../core/files/validation';
+import { validateFile, validateBatchLimits, formatBytes, readFileAsArrayBuffer } from '../../core/files/validation';
 import { toUserFacingError, type UserFacingError } from '../../core/errors';
 import { downloadBlob, saveMultipleBlobs, shareBlob, isMobileApp } from '../../core/processors/download';
 import { compressSingleFile } from '../../core/processors/image-resizer';
@@ -230,7 +230,7 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
         const processedItems: ProcessedFile[] = await Promise.all(
           fileArray.map(async (file) => {
             await validateFile(file, { acceptedMimes });
-            const buffer = await file.arrayBuffer();
+            const buffer = await readFileAsArrayBuffer(file);
 
             let previewUrl: string | undefined = undefined;
             if (file.type.startsWith('image/')) {
@@ -640,10 +640,10 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`w-full rounded-sheet border transition-colors duration-150 flex flex-col justify-between ${
+        className={`w-full rounded-sheet border transition-colors duration-150 flex flex-col justify-between overflow-hidden ${
           isMobile
-            ? 'flex-1 min-h-0 p-3 pb-0 overflow-hidden'
-            : 'flex-1 min-h-[340px] p-4 sm:p-6'
+            ? 'flex-1 min-h-0'
+            : 'flex-1 min-h-[340px]'
         } ${
           isDragOver
             ? 'border-accent bg-surface-hover shadow-lifted'
@@ -658,7 +658,7 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
             <p className="text-xs text-text-muted">Loading and validating on this device</p>
           </div>
         ) : files.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-4 my-auto text-center gap-2 pb-4">
+          <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 my-auto text-center gap-2 pb-4">
             <h3 className="text-base sm:text-lg font-bold text-text-main">
               {activeMode === 'pdf' ? 'Drop PDFs here' : activeMode === 'image' ? 'Drop images here' : 'Drop documents here'}
             </h3>
@@ -680,7 +680,7 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
             </div>
           </div>
         ) : (
-          <div className={`w-full flex-1 min-h-0 ${isMobile ? 'overflow-y-auto px-0.5 pt-1 pb-2' : 'max-h-[280px] sm:max-h-[340px] lg:max-h-none overflow-y-auto px-0.5 pt-1 pb-3'} no-scrollbar`}>
+          <div className={`w-full flex-1 min-h-0 ${isMobile ? 'overflow-y-auto p-3' : 'max-h-[280px] sm:max-h-[340px] lg:max-h-none overflow-y-auto p-4 sm:p-5'} no-scrollbar`}>
             <div className={`grid ${isMobile ? 'grid-cols-[repeat(auto-fill,minmax(145px,1fr))] gap-2.5' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4'} items-start`}>
               {files.map((file) => {
                 const batchItem = result?.items?.find(
@@ -878,8 +878,8 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
           </div>
         )}
 
-        {/* Pinned Bottom Bar: ALWAYS visible on desktop to prevent any UI jump */}
-        <div className="relative z-20 shrink-0 pt-2 sm:pt-2.5 mt-auto border-t border-surface-border bg-surface-panel flex items-center justify-between -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-2.5 rounded-b-sheet">
+        {/* Pinned Bottom Bar: ALWAYS visible to prevent UI jump, fully within container with no clipping */}
+        <div className="relative z-20 shrink-0 border-t border-surface-border bg-surface-panel flex items-center justify-between px-3 sm:px-5 py-2.5">
           {files.length === 0 ? (
             <>
               <span className="text-xs font-mono text-text-muted">0 files</span>

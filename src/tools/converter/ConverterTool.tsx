@@ -178,7 +178,7 @@ export const ConverterTool: React.FC<ToolProps> = ({
     );
 
   return (
-    <div className={`flex-1 flex flex-col ${isMobile ? 'h-full overflow-hidden p-2 sm:p-3 pb-[calc(4.5rem+var(--safe-area-bottom))]' : 'lg:h-full lg:overflow-hidden select-none bg-surface-bg'}`}>
+    <div className={`flex-1 flex flex-col ${isMobile ? `h-full overflow-hidden p-2 sm:p-3 ${selectedMode ? 'pb-1' : 'pb-[calc(4.5rem+var(--safe-area-bottom))]'}` : 'lg:h-full lg:overflow-hidden select-none bg-surface-bg'}`}>
       {/* Scrollable Main Area on desktop lg, fitted flex column on mobile */}
       <div className={`flex-1 flex flex-col ${isMobile ? 'min-h-0 overflow-hidden' : 'lg:overflow-y-auto px-4 sm:px-6 lg:px-8 py-4 space-y-4 min-h-0'}`}>
         {/* Error Alert */}

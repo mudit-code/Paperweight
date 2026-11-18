@@ -122,3 +122,109 @@ export function validateBatchLimits(files: File[], rules: ValidationRules = DEFA
     throw new MemoryLimitError(files.length, totalBytes);
   }
 }
+
+/**
+ * Safely reads a File or Blob into an ArrayBuffer with resilient fallback strategies.
+ * On mobile browsers and Android WebViews, reading File objects can fail with NotReadableError
+ * if the temporary handle expires or if the browser stream locks. This helper sequentially tries:
+ * 1. file.arrayBuffer()
+ * 2. FileReader.readAsArrayBuffer()
+ * 3. URL.createObjectURL() + fetch()
+ * 4. file.slice().arrayBuffer()
+ * 5. Image drawing fallback (for image files)
+ */
+export async function readFileAsArrayBuffer(file: File | Blob): Promise<ArrayBuffer> {
+  // Strategy 1: Native file.arrayBuffer()
+  try {
+    if (typeof file.arrayBuffer === 'function') {
+      const buf = await file.arrayBuffer();
+      if (buf && buf.byteLength > 0) return buf;
+    }
+  } catch (err) {
+    console.warn('Native file.arrayBuffer() failed, trying FileReader...', err);
+  }
+
+  // Strategy 2: FileReader
+  try {
+    const buf = await new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (reader.result instanceof ArrayBuffer) {
+          resolve(reader.result);
+        } else {
+          reject(new Error('FileReader returned non-ArrayBuffer'));
+        }
+      };
+      reader.onerror = () => reject(reader.error || new Error('FileReader read error'));
+      reader.onabort = () => reject(new Error('FileReader aborted'));
+      reader.readAsArrayBuffer(file);
+    });
+    if (buf && buf.byteLength > 0) return buf;
+  } catch (err) {
+    console.warn('FileReader failed, trying blob URL fetch...', err);
+  }
+
+  // Strategy 3: Object URL + fetch
+  try {
+    const blobUrl = URL.createObjectURL(file);
+    try {
+      const res = await fetch(blobUrl);
+      if (res.ok) {
+        const buf = await res.arrayBuffer();
+        if (buf && buf.byteLength > 0) return buf;
+      }
+    } finally {
+      URL.revokeObjectURL(blobUrl);
+    }
+  } catch (err) {
+    console.warn('Object URL fetch failed, trying slice...', err);
+  }
+
+  // Strategy 4: Sliced file
+  try {
+    const slice = file.slice(0, file.size, file.type);
+    if (typeof slice.arrayBuffer === 'function') {
+      const buf = await slice.arrayBuffer();
+      if (buf && buf.byteLength > 0) return buf;
+    }
+  } catch (err) {
+    console.warn('Slice reading failed...', err);
+  }
+
+  // Strategy 5: Image element draw to canvas (for images)
+  const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|bmp|gif)$/i.test((file as File).name || '');
+  if (isImage && typeof document !== 'undefined') {
+    try {
+      const blobUrl = URL.createObjectURL(file);
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Image decode error'));
+        img.src = blobUrl;
+      });
+      URL.revokeObjectURL(blobUrl);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width || 300;
+      canvas.height = img.naturalHeight || img.height || 300;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0);
+        const mime = file.type || 'image/jpeg';
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, mime, 0.95));
+        if (blob) {
+          const buf = await blob.arrayBuffer();
+          if (buf && buf.byteLength > 0) return buf;
+        }
+      }
+    } catch (err) {
+      console.warn('Image canvas fallback failed...', err);
+    }
+  }
+
+  throw new FileValidationError(
+    `Unable to read "${(file as File).name || 'the selected file'}".`,
+    'The file handle was revoked by the device. Please choose the photo again from your gallery or files.',
+    (file as File).name
+  );
+}

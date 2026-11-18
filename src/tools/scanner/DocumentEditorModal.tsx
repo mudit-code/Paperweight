@@ -945,7 +945,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
       el.removeEventListener('touchend', onTouchEnd);
       el.removeEventListener('touchcancel', onTouchEnd);
     };
-  }, [activeTool]);
+  }, [isOpen, activeTool, pages.length]);
 
   // Keyboard navigation & zoom shortcuts (+, -, 0, Arrow keys)
   useEffect(() => {
@@ -1963,75 +1963,77 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
   return createPortal(
     <div className="fixed inset-0 z-50 bg-surface-bg text-text-main flex flex-col justify-between overflow-hidden select-none">
       {/* 1. TOP HEADER (Theme-aligned with safe-area status bar spacing) */}
-      <div className="relative z-30 px-3 sm:px-4 py-2 pt-[max(0.5rem,var(--safe-area-top))] pl-[max(0.75rem,var(--safe-area-left))] pr-[max(0.75rem,var(--safe-area-right))] flex items-center justify-between border-b border-surface-border bg-surface-panel text-text-main shrink-0">
-        {/* Back Button with Text as everywhere else */}
-        <button
-          type="button"
-          onClick={handleBack}
-          className="inline-flex items-center gap-1.5 h-9 sm:h-[38px] px-3 rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle text-xs font-semibold text-text-main transition-colors duration-fast ease-out cursor-pointer shrink-0 shadow-2xs"
-          title="Back"
-          aria-label="Back"
-        >
-          <ArrowLeft className="w-4 h-4 text-text-muted shrink-0" />
-          <span>Back</span>
-        </button>
+      <div className="relative z-30 px-3 sm:px-4 pb-2 pt-[max(0.5rem,var(--safe-area-top))] pl-[max(0.75rem,var(--safe-area-left))] pr-[max(0.75rem,var(--safe-area-right))] border-b border-surface-border bg-surface-panel text-text-main shrink-0">
+        <div className="relative flex items-center justify-between w-full h-9 sm:h-10">
+          {/* Back Button with Text as everywhere else */}
+          <button
+            type="button"
+            onClick={handleBack}
+            className="relative z-10 inline-flex items-center gap-1.5 h-9 sm:h-[38px] px-3 rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle text-xs font-semibold text-text-main transition-colors duration-fast ease-out cursor-pointer shrink-0 shadow-2xs"
+            title="Back"
+            aria-label="Back"
+          >
+            <ArrowLeft className="w-4 h-4 text-text-muted shrink-0" />
+            <span>Back</span>
+          </button>
 
-        {/* Centered Document Title (centered to content area excluding desktop right toolbar) */}
-        <div className="absolute inset-y-0 left-0 right-0 lg:right-72 xl:right-80 flex items-center justify-center pointer-events-none px-20 sm:px-28">
-          <div className="pointer-events-auto flex items-center gap-1.5 max-w-[280px] sm:max-w-md min-w-0">
-            {isEditingName ? (
-              <input
-                type="text"
-                value={docName}
-                autoFocus
-                onBlur={() => setIsEditingName(false)}
-                onKeyDown={(e) => e.key === 'Enter' && setIsEditingName(false)}
-                onChange={(e) => setDocName(e.target.value)}
-                className="bg-surface-subtle text-text-main font-semibold text-sm px-2.5 h-9 rounded-control border border-accent focus:outline-none w-full text-center"
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => setIsEditingName(true)}
-                className="h-9 px-2.5 rounded-control flex items-center justify-center gap-1.5 text-sm font-semibold truncate hover:bg-surface-hover cursor-pointer text-text-main"
-                title="Click to rename document"
-              >
-                <span className="truncate">{docName}</span>
-                <Edit2 className="w-3.5 h-3.5 text-text-muted shrink-0" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Right Header: Mobile Undo/Redo & Desktop Balance Spacer */}
-        <div className="flex items-center gap-1.5 shrink-0 z-10">
-          {activeTool === 'none' && (
-            <div className="flex items-center gap-1 lg:hidden">
-              <button
-                type="button"
-                onClick={handleUndo}
-                disabled={!canUndo}
-                style={{ touchAction: 'manipulation' }}
-                className="w-8 h-8 inline-flex items-center justify-center rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-2xs"
-                aria-label="Undo"
-                title="Undo"
-              >
-                <Undo2 className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={handleRedo}
-                disabled={!canRedo}
-                style={{ touchAction: 'manipulation' }}
-                className="w-8 h-8 inline-flex items-center justify-center rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-2xs"
-                aria-label="Redo"
-                title="Redo"
-              >
-                <Redo2 className="w-4 h-4" />
-              </button>
+          {/* Centered Document Title (perfectly aligned with Back and Undo/Redo within the header row) */}
+          <div className="absolute inset-0 lg:right-72 xl:right-80 flex items-center justify-center pointer-events-none px-20 sm:px-28">
+            <div className="pointer-events-auto flex items-center gap-1.5 max-w-[280px] sm:max-w-md min-w-0">
+              {isEditingName ? (
+                <input
+                  type="text"
+                  value={docName}
+                  autoFocus
+                  onBlur={() => setIsEditingName(false)}
+                  onKeyDown={(e) => e.key === 'Enter' && setIsEditingName(false)}
+                  onChange={(e) => setDocName(e.target.value)}
+                  className="bg-surface-subtle text-text-main font-semibold text-sm px-2.5 h-9 rounded-control border border-accent focus:outline-none w-full text-center"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsEditingName(true)}
+                  className="h-9 px-2.5 rounded-control flex items-center justify-center gap-1.5 text-sm font-semibold truncate hover:bg-surface-hover cursor-pointer text-text-main"
+                  title="Click to rename document"
+                >
+                  <span className="truncate">{docName}</span>
+                  <Edit2 className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                </button>
+              )}
             </div>
-          )}
-          <div className="w-20 hidden lg:block" />
+          </div>
+
+          {/* Right Header: Mobile Undo/Redo & Desktop Balance Spacer */}
+          <div className="relative z-10 flex items-center gap-1.5 shrink-0">
+            {activeTool === 'none' && (
+              <div className="flex items-center gap-1 lg:hidden">
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  disabled={!canUndo}
+                  style={{ touchAction: 'manipulation' }}
+                  className="w-8 h-8 inline-flex items-center justify-center rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-2xs"
+                  aria-label="Undo"
+                  title="Undo"
+                >
+                  <Undo2 className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRedo}
+                  disabled={!canRedo}
+                  style={{ touchAction: 'manipulation' }}
+                  className="w-8 h-8 inline-flex items-center justify-center rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-2xs"
+                  aria-label="Redo"
+                  title="Redo"
+                >
+                  <Redo2 className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+            <div className="w-20 hidden lg:block" />
+          </div>
         </div>
       </div>
 

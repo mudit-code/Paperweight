@@ -60,7 +60,9 @@
     <!-- Inline pre-paint script: initialize safe areas immediately and eliminate theme flash -->
     <script>
       (function() {
-        if (/android/i.test(navigator.userAgent)) {
+        // Safe area insets: Only apply Android hardware status bar insets when running in the native Android app
+        var isNativeAndroid = Boolean(window.AndroidBridge || (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()));
+        if (isNativeAndroid) {
           var defaultTop = 36;
           try {
             if (window.AndroidBridge && typeof window.AndroidBridge.getStatusBarHeight === 'function') {
@@ -71,7 +73,9 @@
             }
           } catch (e) {}
           document.documentElement.style.setProperty('--safe-area-inset-top', defaultTop + 'px');
+        }
 
+        if (/android/i.test(navigator.userAgent)) {
           if (typeof window !== 'undefined' && 'caches' in window) {
             try {
               caches.keys().then(function(names) {

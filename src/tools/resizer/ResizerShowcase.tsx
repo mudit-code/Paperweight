@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import type { ProcessedFile } from '../../core/types';
 import type { BatchResult } from '../../core/processors/types';
-import { validateFile, formatBytes } from '../../core/files/validation';
+import { validateFile, formatBytes, readFileAsArrayBuffer } from '../../core/files/validation';
 import { toUserFacingError, type UserFacingError } from '../../core/errors';
 import { downloadBlob, shareBlob, isMobileApp } from '../../core/processors/download';
 import { Button } from '../../components/ui/Button';
@@ -182,7 +182,7 @@ export const ResizerShowcase: React.FC<ResizerShowcaseProps> = ({
         ],
       });
 
-      const buffer = await file.arrayBuffer();
+      const buffer = await readFileAsArrayBuffer(file);
       const processed: ProcessedFile = {
         id: `f_resizer_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         name: file.name,

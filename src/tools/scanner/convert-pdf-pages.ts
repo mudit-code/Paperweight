@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { readFileAsArrayBuffer } from '../../core/files/validation';
 
 if (typeof window !== 'undefined' && pdfjsLib?.GlobalWorkerOptions) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
@@ -24,7 +25,7 @@ export async function convertFilesToImagePages(files: File[]): Promise<File[]> {
     }
 
     try {
-      const buffer = await file.arrayBuffer();
+      const buffer = await readFileAsArrayBuffer(file);
       const loadingTask = pdfjsLib.getDocument({
         data: new Uint8Array(buffer.slice(0)),
       });

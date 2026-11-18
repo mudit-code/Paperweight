@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import type { ProcessedFile } from '../../core/types';
 import type { BatchResult } from '../../core/processors/types';
-import { validateFile, formatBytes } from '../../core/files/validation';
+import { validateFile, formatBytes, readFileAsArrayBuffer } from '../../core/files/validation';
 import { toUserFacingError, type UserFacingError } from '../../core/errors';
 import { isMobileApp } from '../../core/processors/download';
 import { Button } from '../../components/ui/Button';
@@ -127,7 +127,7 @@ export const GenericConverterShowcase: React.FC<GenericConverterShowcaseProps> =
           maxFileSize: 250 * 1024 * 1024,
         });
 
-        const buffer = await f.arrayBuffer();
+        const buffer = await readFileAsArrayBuffer(f);
         let previewUrl: string | undefined = undefined;
         if (f.type.startsWith('image/')) {
           previewUrl = URL.createObjectURL(new Blob([buffer], { type: f.type }));
@@ -198,7 +198,7 @@ export const GenericConverterShowcase: React.FC<GenericConverterShowcaseProps> =
   const totalInputSize = files.reduce((acc, f) => acc + f.size, 0);
 
   return (
-    <div className={`flex flex-col select-none ${isMobile ? 'flex-1 min-h-0 space-y-2' : 'space-y-4'} ${className}`}>
+    <div className={`flex flex-col select-none ${isMobile ? 'flex-1 min-h-0 h-full space-y-2' : 'space-y-4'} ${className}`}>
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -243,7 +243,7 @@ export const GenericConverterShowcase: React.FC<GenericConverterShowcaseProps> =
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={`w-full rounded-sheet border transition-colors duration-150 flex flex-col justify-between text-center overflow-hidden relative shadow-2xs ${
-            isMobile ? 'flex-1 min-h-[180px] p-3 sm:p-4' : 'flex-1 min-h-[340px] p-4 sm:p-5'
+            isMobile ? 'flex-1 min-h-0' : 'flex-1 min-h-[340px]'
           } ${
             isDragOver
               ? 'border-accent bg-surface-hover shadow-lifted'
@@ -251,7 +251,7 @@ export const GenericConverterShowcase: React.FC<GenericConverterShowcaseProps> =
           }`}
         >
           {/* Centered Content */}
-          <div className="flex-1 flex flex-col items-center justify-center p-4 my-auto">
+          <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-5 my-auto">
             {isImporting ? (
               <div className="flex flex-col items-center justify-center space-y-2.5 animate-in fade-in duration-150">
                 <Loader2 className="w-8 h-8 text-accent animate-spin" />
@@ -288,7 +288,7 @@ export const GenericConverterShowcase: React.FC<GenericConverterShowcaseProps> =
           </div>
 
           {/* Pinned Bottom Bar: ALWAYS visible to prevent UI jump */}
-          <div className="shrink-0 pt-2.5 border-t border-surface-border flex items-center justify-between gap-2 text-xs -mx-3 sm:-mx-5 -mb-3 sm:-mb-5 px-3 sm:px-5 py-2.5 rounded-b-sheet bg-surface-panel">
+          <div className="shrink-0 border-t border-surface-border flex items-center justify-between gap-2 text-xs px-3 sm:px-5 py-2.5 bg-surface-panel">
             <span className="font-mono text-text-muted text-xs">0 files</span>
             <button
               type="button"
