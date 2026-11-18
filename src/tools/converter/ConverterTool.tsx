@@ -265,10 +265,10 @@ export const ConverterTool: React.FC<ToolProps> = ({
                       key={opt.id}
                       type="button"
                       onClick={() => handleSelectMode(opt.id)}
-                      className="w-full p-4 flex items-center gap-4 text-left bg-surface-panel hover:bg-surface-hover transition-colors cursor-pointer group"
+                      className="hub-option-row w-full p-4 flex items-center gap-4 text-left cursor-pointer group"
                     >
                       {/* Left: Rounded square icon */}
-                      <div className="w-12 h-12 rounded-control bg-surface-subtle border border-surface-border/60 flex items-center justify-center shrink-0 text-text-main group-hover:text-accent transition-colors">
+                      <div className="w-12 h-12 rounded-control bg-surface-subtle border border-surface-border/60 flex items-center justify-center shrink-0 text-text-main transition-colors">
                         <Icon className="w-6 h-6" />
                       </div>
 
@@ -283,7 +283,7 @@ export const ConverterTool: React.FC<ToolProps> = ({
                       </div>
 
                       {/* Right: Chevron */}
-                      <ChevronRight className="w-5 h-5 text-text-muted shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                      <ChevronRight className="w-5 h-5 text-text-muted shrink-0 group-hover:text-text-main group-hover:translate-x-0.5 transition-all" />
                     </button>
                   );
                 })}

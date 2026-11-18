@@ -1,10 +1,7 @@
 import React, { useState } from 'react';
 import type { ToolProps } from '../../core/tools/types';
 import { CompressorShowcase } from './CompressorShowcase';
-import { ProgressBar } from '../../components/ui/ProgressBar';
-import { ResultCard } from '../../components/ui/ResultCard';
-import { MoveToLibraryModal } from '../../components/ui/MoveToLibraryModal';
-import { saveLibraryAssets, generateAssetThumbnail } from '../../core/library/library-db';
+import { DiscardWarningModal } from '../../components/ui/DiscardWarningModal';
 import { isMobileApp } from '../../core/processors/download';
 import {
   AlertCircle,
@@ -122,51 +119,18 @@ const ImageResizerTool: React.FC<ToolProps> = ({
     applyModeSwitch(mode);
   };
 
-  const handleConfirmExitAndSaveDraft = async () => {
-    if (files.length > 0 && pendingSwitchMode) {
-      try {
-        const primaryFile = files[0];
-        const draftName =
-          files.length > 1 ? `${primaryFile.name} (+${files.length - 1} more)` : primaryFile.name;
-        const thumb = await generateAssetThumbnail(primaryFile.data, primaryFile.type);
-        await saveLibraryAssets([
-          {
-            name: draftName,
-            type: primaryFile.type,
-            size: files.reduce((sum, f) => sum + f.size, 0),
-            data: primaryFile.data,
-            thumbnailUrl: thumb,
-            category: 'compression',
-            section: 'drafts',
-            kind: primaryFile.type.includes('pdf') ? 'pdf' : 'image',
-            draftSnapshot: {
-              toolId: 'image-resizer',
-              files,
-              options: { ...options, compressorMode: selectedMode || activeDesktopMode },
-            },
-          },
-        ]);
-      } catch (err) {
-        console.warn('Failed to save draft on compressor switch:', err);
-      }
-    }
-    if (pendingSwitchMode) {
-      applyModeSwitch(pendingSwitchMode);
-    }
-  };
-
   return (
     <div className={`flex-1 flex flex-col ${isMobile ? 'h-full overflow-hidden p-2 sm:p-3 pb-[calc(4.5rem+var(--safe-area-bottom))]' : 'lg:h-full lg:overflow-hidden select-none bg-surface-bg'}`}>
-      {/* Draft Warning Modal on Tab Switching */}
-      <MoveToLibraryModal
+      {/* Discard Warning Modal on Tab Switching */}
+      <DiscardWarningModal
         isOpen={Boolean(pendingSwitchMode)}
-        actionWording="compressing"
+        actionWording="compressor"
         itemCount={files.length}
+        confirmLabel="Discard & Switch"
         onCancel={() => setPendingSwitchMode(null)}
-        onExitWithoutSaving={() => {
+        onConfirm={() => {
           if (pendingSwitchMode) applyModeSwitch(pendingSwitchMode);
         }}
-        onExitAndMove={handleConfirmExitAndSaveDraft}
       />
 
       {/* Scrollable Main Area on desktop lg, fitted flex column on mobile */}
@@ -198,16 +162,6 @@ const ImageResizerTool: React.FC<ToolProps> = ({
               </button>
             )}
           </div>
-        )}
-
-        {/* Result Card when compression finishes (Desktop only; mobile shows results in-place) */}
-        {!isMobile && result && onDismissResult && (
-          <ResultCard result={result} onDismiss={onDismissResult} />
-        )}
-
-        {/* Progress Bar when active (Desktop only; on mobile, CompressorShowcase embeds the progress bar replacing the compression level card) */}
-        {!isMobile && isProcessing && progress && (
-          <ProgressBar progress={progress} onCancel={onCancel} />
         )}
 
         {/* DESKTOP (>= md): Segmented control tabs centered above large showcase */}
@@ -249,6 +203,7 @@ const ImageResizerTool: React.FC<ToolProps> = ({
             progress={progress}
             onCancel={onCancel}
             result={result}
+            onDismissResult={onDismissResult}
             sizeEstimate={sizeEstimate}
             onExecuteBatch={onExecute}
             onViewImages={onViewImages}
@@ -273,10 +228,10 @@ const ImageResizerTool: React.FC<ToolProps> = ({
                       key={opt.id}
                       type="button"
                       onClick={() => handleSelectMode(opt.id)}
-                      className="w-full p-4 flex items-center gap-4 text-left bg-surface-panel hover:bg-surface-hover transition-colors cursor-pointer group"
+                      className="hub-option-row w-full p-4 flex items-center gap-4 text-left cursor-pointer group"
                     >
                       {/* Left: Rounded square icon */}
-                      <div className="w-12 h-12 rounded-control bg-surface-subtle border border-surface-border/60 flex items-center justify-center shrink-0 text-text-main group-hover:text-accent transition-colors">
+                      <div className="w-12 h-12 rounded-control bg-surface-subtle border border-surface-border/60 flex items-center justify-center shrink-0 text-text-main transition-colors">
                         <Icon className="w-6 h-6" />
                       </div>
 
@@ -291,7 +246,7 @@ const ImageResizerTool: React.FC<ToolProps> = ({
                       </div>
 
                       {/* Right: Chevron */}
-                      <ChevronRight className="w-5 h-5 text-text-muted shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                      <ChevronRight className="w-5 h-5 text-text-muted shrink-0 group-hover:text-text-main group-hover:translate-x-0.5 transition-all" />
                     </button>
                   );
                 })}
@@ -313,6 +268,7 @@ const ImageResizerTool: React.FC<ToolProps> = ({
               progress={progress}
               onCancel={onCancel}
               result={result}
+              onDismissResult={onDismissResult}
               sizeEstimate={sizeEstimate}
               onExecuteBatch={onExecute}
               onViewImages={onViewImages}

@@ -55,7 +55,7 @@ export const PdfMergeShowcase: React.FC<PdfMergeShowcaseProps> = ({
   onOptionsChange,
   isProcessing,
   result,
-  onDismissResult: _onDismissResult,
+  onDismissResult,
   onExecute,
   acceptedMimes = [
     'application/pdf',
@@ -214,6 +214,7 @@ export const PdfMergeShowcase: React.FC<PdfMergeShowcaseProps> = ({
               type: file.type || 'application/octet-stream',
               lastModified: file.lastModified,
               data: buffer,
+              blob: file,
               previewUrl,
             };
           })
@@ -231,6 +232,7 @@ export const PdfMergeShowcase: React.FC<PdfMergeShowcaseProps> = ({
         });
 
         // Instantly display files in the workspace (zero delay!)
+        if (result && onDismissResult) onDismissResult();
         onFilesChange([...files, ...processedItems]);
         setIsImporting(false);
 
@@ -322,6 +324,7 @@ export const PdfMergeShowcase: React.FC<PdfMergeShowcaseProps> = ({
     if (selectedFileId === id) {
       onSelectFile?.(null);
     }
+    if (result && onDismissResult) onDismissResult();
     onFilesChange(files.filter((f) => f.id !== id));
   };
 
@@ -330,6 +333,7 @@ export const PdfMergeShowcase: React.FC<PdfMergeShowcaseProps> = ({
   };
 
   const handleConfirmClearAll = () => {
+    if (result && onDismissResult) onDismissResult();
     files.forEach((f) => {
       if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
     });
@@ -351,6 +355,7 @@ export const PdfMergeShowcase: React.FC<PdfMergeShowcaseProps> = ({
     const updated = Array.from(files);
     const [moved] = updated.splice(currentIndex, 1);
     updated.splice(targetIndex, 0, moved);
+    if (result && onDismissResult) onDismissResult();
     onFilesChange(updated);
     onSelectFile?.(moved.id);
   };
@@ -383,6 +388,7 @@ export const PdfMergeShowcase: React.FC<PdfMergeShowcaseProps> = ({
     const [movedItem] = updated.splice(draggedIndex, 1);
     updated.splice(targetIndex, 0, movedItem);
 
+    if (result && onDismissResult) onDismissResult();
     onFilesChange(updated);
     onSelectFile?.(movedItem.id);
     setDraggedIndex(null);
@@ -484,33 +490,37 @@ export const PdfMergeShowcase: React.FC<PdfMergeShowcaseProps> = ({
         }`}
       >
         {isImporting && files.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-4 my-auto space-y-2">
-            <Loader2 className="w-6 h-6 text-accent animate-spin" />
-            <p className="text-sm font-medium text-text-main">Reading files...</p>
+          <div className="flex-1 flex flex-col items-center justify-center p-6 my-auto space-y-2.5 animate-in fade-in duration-150">
+            <Loader2 className="w-8 h-8 text-accent animate-spin" />
+            <p className="text-sm font-semibold text-text-main">Reading files...</p>
+            <p className="text-xs text-text-muted">Loading and validating documents on this device</p>
           </div>
         ) : files.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-4 my-auto text-center gap-3">
-            <p className="text-sm text-text-muted">
-              Choose PDFs or images on your device to combine.
+          <div className="flex-1 flex flex-col items-center justify-center p-4 my-auto text-center gap-2">
+            <h3 className="text-base sm:text-lg font-bold text-text-main">
+              Drop PDFs here
+            </h3>
+            <p className="text-xs sm:text-sm text-text-muted">
+              or choose them from your device.
             </p>
-            <Button
-              type="button"
-              variant="primary"
-              size="md"
-              onClick={openFilePicker}
-              disabled={isProcessing}
-              leftIcon={<FolderPlus className="w-4 h-4" />}
-              className="font-semibold px-6"
-            >
-              Choose files
-            </Button>
+            <div className="pt-2">
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                onClick={openFilePicker}
+                disabled={isProcessing}
+                leftIcon={<FolderPlus className="w-4 h-4" />}
+                className="font-semibold px-6 shadow-xs"
+              >
+                Select PDFs
+              </Button>
+            </div>
           </div>
         ) : (
-          <>
-            {/* Populated State - Grid of Draggable Paper Sheet Cards */}
-            <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3 items-start">
-                {itemsWithMeta.map((item, index) => {
+          <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3 items-start">
+              {itemsWithMeta.map((item, index) => {
                   const { file, isImg, pages, startPage, endPage } = item;
                   const previewUrl = file.previewUrl || previewMap.get(file.id);
                   const isRenderingPreview = !isImg && !previewUrl && pendingThumbnails.has(file.id);
@@ -562,16 +572,7 @@ export const PdfMergeShowcase: React.FC<PdfMergeShowcaseProps> = ({
 
                       {/* Middle: Document / Image Preview Thumbnail */}
                       <div
-                        onClick={(e) => {
-                          if (onViewFile) {
-                            e.stopPropagation();
-                            onViewFile(file);
-                          }
-                        }}
-                        className={`w-full h-28 sm:h-36 rounded-none bg-surface-subtle border border-surface-border-subtle flex items-center justify-center overflow-hidden relative ${
-                          onViewFile ? 'cursor-pointer hover:border-accent hover:ring-1 hover:ring-accent transition-all' : ''
-                        }`}
-                        title={onViewFile ? 'Click to preview' : undefined}
+                        className="w-full h-28 sm:h-36 rounded-none bg-surface-subtle border border-surface-border-subtle flex items-center justify-center overflow-hidden relative"
                       >
                         {previewUrl ? (
                           <img
@@ -661,37 +662,62 @@ export const PdfMergeShowcase: React.FC<PdfMergeShowcaseProps> = ({
                     </div>
                   );
                 })}
+
+                {isImporting && (
+                  <div className="paper-sheet p-3 flex flex-col items-center justify-center h-48 sm:h-56 border-dashed border-accent/60 bg-surface-subtle/60 animate-pulse">
+                    <Loader2 className="w-5 h-5 text-accent animate-spin mb-1.5" />
+                    <span className="text-xs font-semibold text-text-main">Reading file...</span>
+                    <span className="text-[11px] text-text-muted">Loading data</span>
+                  </div>
+                )}
               </div>
             </div>
+          )}
 
-            {/* Bottom summary bar of the top box: Queue summary + Add more + Clear all */}
-            <div className="shrink-0 pt-2.5 border-t border-surface-border flex items-center justify-between gap-2 text-xs">
-              <span className="font-mono text-text-muted text-xs truncate">
-                {files.length} {files.length === 1 ? 'file' : 'files'} queued ({totalPagesCount} {totalPagesCount === 1 ? 'page' : 'pages'} · {formatBytes(totalOriginalBytes)})
-              </span>
-              <div className="flex items-center gap-2 shrink-0">
+        {/* Bottom pinned summary bar: ALWAYS present to prevent UI jump */}
+        <div className="shrink-0 pt-2.5 border-t border-surface-border flex items-center justify-between gap-2 text-xs -mx-4 sm:-mx-5 -mb-4 sm:-mb-5 px-4 sm:px-5 py-2.5 rounded-b-sheet bg-surface-panel">
+          {files.length === 0 ? (
+            <>
+              <span className="font-mono text-text-muted text-xs">0 files</span>
+              <button
+                type="button"
+                disabled
+                className="h-8 px-2.5 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-mono text-text-disabled cursor-not-allowed opacity-40"
+              >
+                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                <span>Clear</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 sm:gap-3">
                 <button
                   type="button"
                   disabled={isProcessing}
                   onClick={openFilePicker}
-                  className="h-9 px-3 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer disabled:opacity-50"
+                  className="h-8 px-3 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer disabled:opacity-50"
                 >
-                  <FolderPlus className="w-4 h-4 shrink-0" />
+                  <FolderPlus className="w-3.5 h-3.5 shrink-0" />
                   <span>Add files</span>
                 </button>
+                <span className="font-mono text-text-muted text-xs truncate">
+                  {files.length} {files.length === 1 ? 'file' : 'files'} · {totalPagesCount} {totalPagesCount === 1 ? 'page' : 'pages'} ({formatBytes(totalOriginalBytes)})
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
                   disabled={isProcessing}
                   onClick={handleRequestClearAll}
-                  className="h-9 px-3 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-status-error hover:bg-status-error-bg border border-surface-border transition-colors cursor-pointer disabled:opacity-50"
+                  className="h-8 px-2.5 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-status-error hover:bg-status-error-bg border border-transparent hover:border-status-error-border transition-colors cursor-pointer"
                 >
-                  <Trash2 className="w-4 h-4 shrink-0" />
+                  <Trash2 className="w-3.5 h-3.5 shrink-0" />
                   <span>Clear</span>
                 </button>
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Bottom Docked Section: On desktop, duplicate options and Merge button are removed (already in OptionsPanel); only result card shows if merged */}
@@ -768,6 +794,7 @@ export const PdfMergeShowcase: React.FC<PdfMergeShowcaseProps> = ({
                           type: 'application/pdf',
                           lastModified: Date.now(),
                           data: buffer,
+                          blob: result.blob,
                         });
                         return;
                       } catch (e) {

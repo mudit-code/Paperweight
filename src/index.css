@@ -194,6 +194,20 @@
     padding: 0 4px;
     border-radius: 3px;
   }
+
+  /* Hub option row for mobile tool selector: avoids sticky hover on touchscreens and false-positive active states */
+  .hub-option-row {
+    background-color: var(--surface-panel);
+    transition: background-color var(--duration-fast) var(--ease-out);
+  }
+  @media (hover: hover) {
+    .hub-option-row:hover {
+      background-color: var(--surface-subtle);
+    }
+  }
+  .hub-option-row:active {
+    background-color: var(--surface-active);
+  }
 }
 
 /* Prevent native video player placeholder controls in WebKit / Android WebView */

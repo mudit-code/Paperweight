@@ -24,7 +24,6 @@ export interface SidebarProps {
   onSelectTool: (id: string) => void;
   isOpenMobile?: boolean;
   onCloseMobile?: () => void;
-  libraryCount?: number;
 }
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {

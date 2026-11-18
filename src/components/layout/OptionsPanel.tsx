@@ -132,6 +132,9 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
       }
     }
 
+    if (result && onDismissResult) {
+      onDismissResult();
+    }
     onOptionsChange(nextOptions);
   };
 
@@ -605,106 +608,114 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
     );
   };
 
-  // When conversion is complete, display the Result Card in place of parameters
-  if (result) {
-    const isMultiImage = Boolean(
-      result.items &&
-      result.items.length > 1 &&
-      (result.items[0]?.fileType === 'image' || result.fileType === 'image' || result.fileType === 'zip')
-    );
-    const isSingle = !result.items || result.items.length <= 1;
-    const displayName = isMultiImage
-      ? `${result.items!.length} Images Ready`
-      : result.filename || (isSingle && result.items?.[0]?.name) || 'converted_document';
-    const displaySize = isMultiImage
-      ? result.items!.reduce((acc, it) => acc + (it.blob?.size || it.compressedSize || 0), 0)
-      : result.size || (isSingle ? result.items?.[0]?.compressedSize : 0);
-    const isPdf = !isMultiImage && (displayName.toLowerCase().endsWith('.pdf') || result.blob.type === 'application/pdf');
+  // Result metadata & actions shared between mobile inline card and desktop sidebar
+  const isMultiImage = Boolean(
+    result?.items &&
+    result.items.length > 1 &&
+    (result.items[0]?.fileType === 'image' || result.fileType === 'image' || result.fileType === 'zip')
+  );
+  const isSingle = !result?.items || result.items.length <= 1;
+  const displayName = isMultiImage
+    ? `${result!.items!.length} Images Ready`
+    : result?.filename || (isSingle && result?.items?.[0]?.name) || 'converted_document';
+  const displaySize = isMultiImage
+    ? result!.items!.reduce((acc, it) => acc + (it.blob?.size || it.compressedSize || 0), 0)
+    : result?.size || (isSingle ? result?.items?.[0]?.compressedSize : 0);
+  const isPdf = Boolean(
+    result &&
+    !isMultiImage &&
+    (displayName.toLowerCase().endsWith('.pdf') || result.blob?.type === 'application/pdf')
+  );
 
-    const handleOpen = async () => {
-      // 1. If result has multiple images (e.g. from PDF to Image or Image conversion), open ImageGalleryModal directly!
-      if (result.items && result.items.length > 0 && result.items[0]?.blob) {
-        const galleryItems: GalleryItem[] = result.items.map((it, idx) => ({
-          id: it.id || `conv_img_${idx}`,
-          name: it.name,
-          blob: it.blob,
-          size: it.blob?.size || it.compressedSize,
-          type: it.blob?.type || 'image/png',
-          url: URL.createObjectURL(it.blob),
-        }));
-        if (onViewImages) {
-          onViewImages(galleryItems, 0);
-          return;
-        }
+  const handleOpen = async () => {
+    if (!result) return;
+    // 1. If result has multiple images (e.g. from PDF to Image or Image conversion), open ImageGalleryModal directly!
+    if (result.items && result.items.length > 0 && result.items[0]?.blob) {
+      const galleryItems: GalleryItem[] = result.items.map((it, idx) => ({
+        id: it.id || `conv_img_${idx}`,
+        name: it.name,
+        blob: it.blob,
+        size: it.blob?.size || it.compressedSize,
+        type: it.blob?.type || 'image/png',
+        url: URL.createObjectURL(it.blob),
+      }));
+      if (onViewImages) {
+        onViewImages(galleryItems, 0);
+        return;
       }
+    }
 
-      // 2. If single PDF file, open in built-in PDF viewer
-      if (isPdf && onViewFile && result.blob) {
-        try {
-          const buffer = await result.blob.arrayBuffer();
-          onViewFile({
-            id: `conv_${Date.now()}`,
-            name: displayName,
-            size: result.blob.size,
-            type: 'application/pdf',
-            lastModified: Date.now(),
-            data: buffer,
-          });
-          return;
-        } catch (e) {
-          console.warn('Could not open preview in modal:', e);
-        }
+    // 2. If single PDF file, open in built-in PDF viewer
+    if (isPdf && onViewFile && result.blob) {
+      try {
+        const buffer = await result.blob.arrayBuffer();
+        onViewFile({
+          id: `conv_${Date.now()}`,
+          name: displayName,
+          size: result.blob.size,
+          type: 'application/pdf',
+          lastModified: Date.now(),
+          data: buffer,
+          blob: result.blob,
+        });
+        return;
+      } catch (e) {
+        console.warn('Could not open preview in modal:', e);
       }
+    }
 
-      // 3. If single image, open in ImageGalleryModal
-      if (result.blob && (result.blob.type.startsWith('image/') || result.fileType === 'image')) {
-        const galleryItems: GalleryItem[] = [
-          {
-            id: result.id || `conv_img_${Date.now()}`,
-            name: displayName,
-            blob: result.blob,
-            size: result.blob.size,
-            type: result.blob.type || 'image/png',
-            url: URL.createObjectURL(result.blob),
-          },
-        ];
-        if (onViewImages) {
-          onViewImages(galleryItems, 0);
-          return;
-        }
+    // 3. If single image, open in ImageGalleryModal
+    if (result.blob && (result.blob.type.startsWith('image/') || result.fileType === 'image')) {
+      const galleryItems: GalleryItem[] = [
+        {
+          id: result.id || `conv_img_${Date.now()}`,
+          name: displayName,
+          blob: result.blob,
+          size: result.blob.size,
+          type: result.blob.type || 'image/png',
+          url: URL.createObjectURL(result.blob),
+        },
+      ];
+      if (onViewImages) {
+        onViewImages(galleryItems, 0);
+        return;
       }
+    }
 
-      // 4. Fallback URL
-      if (result.downloadUrl) {
-        window.open(result.downloadUrl, '_blank');
-      } else {
-        const url = URL.createObjectURL(result.blob);
-        window.open(url, '_blank');
-      }
-    };
+    // 4. Fallback URL
+    if (result.downloadUrl) {
+      window.open(result.downloadUrl, '_blank');
+    } else if (result.blob) {
+      const url = URL.createObjectURL(result.blob);
+      window.open(url, '_blank');
+    }
+  };
 
-    const handleShare = async () => {
-      if (result.items && result.items.length > 1) {
-        // Share multiple images directly as images, NEVER as a zip archive
-        await shareMultipleBlobs(result.items.map((it) => ({ blob: it.blob, name: it.name })));
-      } else {
-        await shareBlob(result.blob, displayName);
-      }
-    };
+  const handleShare = async () => {
+    if (!result) return;
+    if (result.items && result.items.length > 1) {
+      await shareMultipleBlobs(result.items.map((it) => ({ blob: it.blob, name: it.name })));
+    } else if (result.blob) {
+      await shareBlob(result.blob, displayName);
+    }
+  };
 
-    const handleSave = async () => {
-      if (result.items && result.items.length > 1) {
-        // Save multiple images directly as images to Gallery/Storage, NEVER as a zip archive
-        await saveMultipleBlobs(result.items.map((it) => ({ blob: it.blob, name: it.name })));
-      } else {
-        await downloadBlob(result.blob, displayName);
-      }
-    };
+  const handleSave = async () => {
+    if (!result) return;
+    if (result.items && result.items.length > 1) {
+      await saveMultipleBlobs(result.items.map((it) => ({ blob: it.blob, name: it.name })));
+    } else if (result.blob) {
+      await downloadBlob(result.blob, displayName);
+    }
+  };
 
-    const handleConvertOther = () => {
-      if (onDismissResult) onDismissResult();
-      if (onFilesChange) onFilesChange([]);
-    };
+  const handleConvertOther = () => {
+    if (onDismissResult) onDismissResult();
+    if (onFilesChange) onFilesChange([]);
+  };
+
+  // When conversion is complete on mobile inline view, display the Result Card in place of parameters
+  if (isInline && result) {
 
     return (
       <div className={`w-full rounded-sheet border border-surface-border bg-surface-panel p-3.5 sm:p-4 space-y-3 shrink-0 shadow-2xs animate-in fade-in ${className}`}>
@@ -826,15 +837,38 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
         )}
       </div>
 
-      {/* Queued File summary */}
-      <div className="pb-2.5 border-b border-surface-border shrink-0">
-        <div className="flex justify-between items-center text-xs font-mono text-text-muted">
-          <span>Queued</span>
-          <span className="font-semibold text-text-main">
-            {files.length} {files.length === 1 ? 'file' : 'files'}
-            {files.length > 0 && ` (${formatBytes(totalBytes)})`}
-          </span>
-        </div>
+      {/* SUMMARY Card */}
+      <div className="rounded-sheet bg-surface-subtle border border-surface-border p-3.5 shrink-0">
+        <div className="text-[11px] font-mono uppercase tracking-wider text-text-muted mb-1">Summary</div>
+        {result ? (
+          <>
+            <div className="text-sm font-bold text-text-main">
+              {formatBytes(totalBytes)} → {formatBytes(result.size || 0)}{' '}
+              {result.savingsPercent !== undefined && result.savingsPercent > 0 && (
+                <span className="text-xs font-mono font-semibold text-status-success bg-status-success-bg px-1.5 py-0.5 rounded-chip border border-status-success-border ml-1">
+                  -{result.savingsPercent}%
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-text-muted mt-0.5">
+              {result.savingsPercent !== undefined && result.savingsPercent <= 2
+                ? <>Already well compressed. <span className="underline font-medium cursor-pointer" onClick={() => handleOptionChange('compressionPreset', 'maximum')}>Try Maximum</span> for a smaller file.</>
+                : 'Processing complete.'}
+            </p>
+          </>
+        ) : files.length === 0 ? (
+          <>
+            <div className="text-sm font-bold text-text-main">No files yet</div>
+            <p className="text-xs text-text-muted mt-0.5">Choose {tool.id === 'pdf-merge' ? 'PDFs' : 'files'} to begin.</p>
+          </>
+        ) : (
+          <>
+            <div className="text-sm font-bold text-text-main">
+              {files.length} {files.length === 1 ? 'file' : 'files'} · {formatBytes(totalBytes)}
+            </div>
+            <p className="text-xs text-text-muted mt-0.5">Ready to {isCompressor ? 'compress' : tool.id === 'pdf-merge' ? 'merge' : 'convert'}.</p>
+          </>
+        )}
       </div>
 
       {/* Options Fields & Controls */}
@@ -850,18 +884,52 @@ export const OptionsPanel: React.FC<OptionsPanelProps> = ({
       </div>
 
       {/* Action Button at Bottom of Options Panel */}
-      <div className="pt-3 mt-auto border-t border-surface-border shrink-0">
-        <Button
-          variant="primary"
-          size="md"
-          className="w-full min-h-[46px] font-bold shadow-sm"
-          disabled={files.length === 0 || isProcessing || isCustomPagesInvalid}
-          isLoading={isProcessing}
-          leftIcon={actionIcon}
-          onClick={onExecute}
-        >
-          {actionLabel}
-        </Button>
+      <div className="pt-3 mt-auto border-t border-surface-border shrink-0 space-y-2">
+        {result ? (
+          <>
+            <Button
+              variant="primary"
+              size="md"
+              className="w-full min-h-[46px] font-bold shadow-sm"
+              leftIcon={<Save className="w-4 h-4" />}
+              onClick={handleSave}
+            >
+              {result.items && result.items.length > 1 ? 'Save All' : 'Save'}
+            </Button>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="secondary"
+                size="md"
+                className="w-full font-semibold"
+                leftIcon={<ExternalLink className="w-4 h-4" />}
+                onClick={handleOpen}
+              >
+                Open
+              </Button>
+              <Button
+                variant="secondary"
+                size="md"
+                className="w-full font-semibold"
+                leftIcon={<Share2 className="w-4 h-4" />}
+                onClick={handleShare}
+              >
+                Share
+              </Button>
+            </div>
+          </>
+        ) : (
+          <Button
+            variant="primary"
+            size="md"
+            className="w-full min-h-[46px] font-bold shadow-sm"
+            disabled={files.length === 0 || isProcessing || isCustomPagesInvalid}
+            isLoading={isProcessing}
+            leftIcon={actionIcon}
+            onClick={onExecute}
+          >
+            {actionLabel}
+          </Button>
+        )}
       </div>
     </aside>
   );

@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  ChevronLeft,
-  ChevronRight,
   RotateCw,
   Minimize2,
   Download,
@@ -157,6 +155,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
   // Hidden file input for adding more images
   const addFileInputRef = useRef<HTMLInputElement>(null);
   const stageContainerRef = useRef<HTMLDivElement>(null);
+  const activeImageRef = useRef<HTMLImageElement>(null);
 
   // Keep items in sync with prop updates
   useEffect(() => {
@@ -231,18 +230,33 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
       }
     };
 
+    const isTouchOnImage = (touch: Touch) => {
+      if (!activeImageRef.current) return true;
+      const rect = activeImageRef.current.getBoundingClientRect();
+      return (
+        touch.clientX >= rect.left &&
+        touch.clientX <= rect.right &&
+        touch.clientY >= rect.top &&
+        touch.clientY <= rect.bottom
+      );
+    };
+
     const onTouchStart = (e: TouchEvent) => {
       flushPendingSwipe();
       setIsTouchActive(true);
       movedSinceStart = false;
 
       if (e.touches.length >= 2) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        // Do not allow pinch zoom if touches are initiated outside the image area
+        if (!isTouchOnImage(t1) && !isTouchOnImage(t2)) {
+          return;
+        }
         if (e.cancelable) e.preventDefault();
         gestureLock = 'pinch';
         isDoubleTapCandidate = false;
         isDoubleTapDragging = false;
-        const t1 = e.touches[0];
-        const t2 = e.touches[1];
         pinchStartDist = Math.max(10, Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY));
         pinchStartScale = scaleRef.current;
         const rect = el.getBoundingClientRect();
@@ -267,7 +281,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
         const now = performance.now();
         const distFromLast = Math.hypot(t.clientX - lastTapPos.x, t.clientY - lastTapPos.y);
 
-        if (now - lastTapTime < 350 && distFromLast < 45) {
+        if (now - lastTapTime < 350 && distFromLast < 45 && isTouchOnImage(t)) {
           if (e.cancelable) e.preventDefault();
           isDoubleTapCandidate = true;
           isDoubleTapDragging = false;
@@ -567,6 +581,17 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
 
   // Desktop Wheel zoom with focal point tracking (never zooms out smaller than 1.0)
   const handleWheel = (e: React.WheelEvent) => {
+    // Do not allow zoom gestures outside the image area
+    if (activeImageRef.current) {
+      const imgRect = activeImageRef.current.getBoundingClientRect();
+      const isInside =
+        e.clientX >= imgRect.left &&
+        e.clientX <= imgRect.right &&
+        e.clientY >= imgRect.top &&
+        e.clientY <= imgRect.bottom;
+      if (!isInside) return;
+    }
+
     e.preventDefault();
     const el = stageContainerRef.current;
     if (!el) return;
@@ -711,6 +736,17 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
 
   // Double click toggles between fit and 2.5x focal zoom
   const handleDoubleClick = (e: React.MouseEvent) => {
+    // Do not allow zoom gestures outside the image area
+    if (activeImageRef.current) {
+      const imgRect = activeImageRef.current.getBoundingClientRect();
+      const isInside =
+        e.clientX >= imgRect.left &&
+        e.clientX <= imgRect.right &&
+        e.clientY >= imgRect.top &&
+        e.clientY <= imgRect.bottom;
+      if (!isInside) return;
+    }
+
     if (scale > 1.05) {
       resetTransform();
     } else {
@@ -1074,7 +1110,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
                   {showNeighbors && prevItem && (
                     <div
                       style={{ transform: `translate3d(-${slideStride}px, 0, 0)` }}
-                      className="absolute inset-0 flex items-center justify-center pointer-events-none select-none"
+                      className="absolute inset-0 p-2 sm:p-4 flex items-center justify-center pointer-events-none select-none"
                     >
                       <img
                         src={prevItem.url}
@@ -1082,7 +1118,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
                         loading="eager"
                         decoding="async"
                         draggable={false}
-                        className="max-h-[75vh] max-w-[88vw] object-contain shadow-2xl rounded-none pointer-events-none select-none"
+                        className="max-h-full max-w-full object-contain shadow-2xl rounded-none pointer-events-none select-none"
                       />
                     </div>
                   )}
@@ -1093,16 +1129,17 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
                       transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${scale}) rotate(${rotation}deg) scaleX(${isFlippedH ? -1 : 1})`,
                       transition: isDragging || isTouchActive ? 'none' : 'transform 140ms cubic-bezier(0.22, 1, 0.36, 1)',
                     }}
-                    className="max-w-[94%] max-h-[88%] flex items-center justify-center"
+                    className="w-full h-full p-2 sm:p-4 flex items-center justify-center"
                   >
                     <img
+                      ref={activeImageRef}
                       src={currentItem.url}
                       alt={currentItem.name}
                       onLoad={(e) => handleImageLoad(currentItem.id, e)}
                       loading="eager"
                       decoding="async"
                       draggable={false}
-                      className="max-h-[75vh] max-w-[88vw] object-contain shadow-2xl rounded-none pointer-events-none select-none transition-shadow"
+                      className="max-h-full max-w-full object-contain shadow-2xl rounded-none pointer-events-none select-none transition-shadow"
                     />
                   </div>
 
@@ -1110,7 +1147,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
                   {showNeighbors && nextItem && (
                     <div
                       style={{ transform: `translate3d(${slideStride}px, 0, 0)` }}
-                      className="absolute inset-0 flex items-center justify-center pointer-events-none select-none"
+                      className="absolute inset-0 p-2 sm:p-4 flex items-center justify-center pointer-events-none select-none"
                     >
                       <img
                         src={nextItem.url}
@@ -1118,7 +1155,7 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
                         loading="eager"
                         decoding="async"
                         draggable={false}
-                        className="max-h-[75vh] max-w-[88vw] object-contain shadow-2xl rounded-none pointer-events-none select-none"
+                        className="max-h-full max-w-full object-contain shadow-2xl rounded-none pointer-events-none select-none"
                       />
                     </div>
                   )}
@@ -1139,38 +1176,6 @@ export const ImageGalleryModal: React.FC<ImageGalleryModalProps> = ({
                   <span>Choose files</span>
                 </button>
               </div>
-            )}
-
-            {/* Floating Left Navigation Arrow (Desktop) */}
-            {items.length > 1 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handlePrev();
-                }}
-                className="hidden sm:flex absolute left-4 top-1/2 -translate-y-1/2 w-11 h-11 rounded-control bg-surface-panel hover:bg-surface-hover border border-surface-border text-text-main items-center justify-center shadow-lifted transition-colors cursor-pointer z-20"
-                title="Previous image"
-                aria-label="Previous Image"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-            )}
-
-            {/* Floating Right Navigation Arrow (Desktop) */}
-            {items.length > 1 && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleNext();
-                }}
-                className="hidden sm:flex absolute right-4 top-1/2 -translate-y-1/2 w-11 h-11 rounded-control bg-surface-panel hover:bg-surface-hover border border-surface-border text-text-main items-center justify-center shadow-lifted transition-colors cursor-pointer z-20"
-                title="Next image"
-                aria-label="Next Image"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
             )}
 
             {/* Feedback Toast for Copy to Clipboard */}

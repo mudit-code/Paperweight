@@ -22,6 +22,7 @@ import { downloadBlob, shareBlob, isMobileApp } from '../../core/processors/down
 import { Button } from '../../components/ui/Button';
 import { ClearWarningBanner } from '../../components/ui/ClearWarningBanner';
 import { DedicatedCropper } from './DedicatedCropper';
+import { ZoomableResultImage } from './ZoomableResultImage';
 import {
   convertToPixels,
   type DimensionUnit,
@@ -189,6 +190,7 @@ export const ResizerShowcase: React.FC<ResizerShowcaseProps> = ({
         type: file.type || 'image/jpeg',
         lastModified: file.lastModified,
         data: buffer,
+        blob: file,
       };
 
       if (onDismissResult) onDismissResult();
@@ -422,15 +424,13 @@ export const ResizerShowcase: React.FC<ResizerShowcaseProps> = ({
             )}
           </div>
 
-          {/* Center Image Display */}
-          <div className="flex-1 min-h-0 bg-surface-bg p-4 sm:p-6 flex items-center justify-center overflow-hidden relative">
-            <div className="paper-sheet p-2 sm:p-3 relative max-w-full max-h-full flex items-center justify-center shadow-lg">
-              <img
-                src={resultUrl}
-                alt={result.filename}
-                className="max-w-full max-h-[calc(100vh-16rem)] object-contain rounded-none select-none"
-              />
-            </div>
+          {/* Center Image Display (Simple image without cute frame + zoom gestures & min fit-page zoom) */}
+          <div className="flex-1 min-h-0 bg-surface-bg flex items-center justify-center overflow-hidden relative">
+            <ZoomableResultImage
+              src={resultUrl}
+              alt={result.filename}
+              className="p-4 sm:p-6"
+            />
           </div>
 
           {/* Footer Metrics & Actions Bar */}
@@ -615,29 +615,38 @@ export const ResizerShowcase: React.FC<ResizerShowcaseProps> = ({
                 : 'border-surface-border bg-surface-panel'
             }`}
           >
-            <div className="w-16 h-16 mx-auto rounded-full bg-surface-subtle border border-surface-border flex items-center justify-center text-text-muted">
-              <FolderPlus className="w-8 h-8" />
-            </div>
-            <div className="space-y-1 max-w-md">
-              <h3 className="text-base sm:text-lg font-bold text-text-main">
-                Choose photo to resize & crop
-              </h3>
-              <p className="text-xs sm:text-sm text-text-muted">
-                Drag and drop an image here or browse from your computer
-              </p>
-            </div>
-            <div className="pt-2">
-              <Button
-                variant="primary"
-                size="md"
-                disabled={isImporting}
-                onClick={() => fileInputRef.current?.click()}
-                leftIcon={isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderPlus className="w-4 h-4" />}
-                className="w-auto px-8 font-semibold shadow-xs"
-              >
-                {isImporting ? 'Reading Photo...' : 'Choose image'}
-              </Button>
-            </div>
+            {isImporting ? (
+              <div className="flex flex-col items-center justify-center space-y-2.5 animate-in fade-in duration-150">
+                <Loader2 className="w-8 h-8 text-accent animate-spin" />
+                <p className="text-sm font-semibold text-text-main">Reading and preparing photo...</p>
+                <p className="text-xs text-text-muted">Loading image data on this device</p>
+              </div>
+            ) : (
+              <>
+                <div className="w-16 h-16 mx-auto rounded-full bg-surface-subtle border border-surface-border flex items-center justify-center text-text-muted">
+                  <FolderPlus className="w-8 h-8" />
+                </div>
+                <div className="space-y-1 max-w-md">
+                  <h3 className="text-base sm:text-lg font-bold text-text-main">
+                    Choose photo to resize & crop
+                  </h3>
+                  <p className="text-xs sm:text-sm text-text-muted">
+                    Drag and drop an image here or browse from your computer
+                  </p>
+                </div>
+                <div className="pt-2">
+                  <Button
+                    variant="primary"
+                    size="md"
+                    onClick={() => fileInputRef.current?.click()}
+                    leftIcon={<FolderPlus className="w-4 h-4" />}
+                    className="w-auto px-8 font-semibold shadow-xs"
+                  >
+                    Choose image
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -867,29 +876,36 @@ export const ResizerShowcase: React.FC<ResizerShowcaseProps> = ({
             {/* Card 4: Upload Image / Continue to Cropper */}
             <div className="p-5 rounded-sheet bg-surface-panel border border-surface-border space-y-4 shadow-xs">
               {!currentFile ? (
-                <div className="text-center py-4 space-y-3">
-                  <div className="w-12 h-12 mx-auto rounded-full bg-surface-subtle border border-surface-border flex items-center justify-center text-text-muted">
-                    <FolderPlus className="w-6 h-6" />
+                isImporting ? (
+                  <div className="py-6 flex flex-col items-center justify-center space-y-2.5 animate-in fade-in duration-150 text-center">
+                    <Loader2 className="w-8 h-8 text-accent animate-spin" />
+                    <p className="text-sm font-semibold text-text-main">Reading and preparing photo...</p>
+                    <p className="text-xs text-text-muted">Loading image data on this device</p>
                   </div>
-                  <div className="space-y-1">
-                    <h4 className="text-sm font-bold text-text-main">
-                      Choose photo to resize & crop
-                    </h4>
-                    <p className="text-xs text-text-muted">
-                      Select a photo from your gallery or files
-                    </p>
+                ) : (
+                  <div className="text-center py-4 space-y-3">
+                    <div className="w-12 h-12 mx-auto rounded-full bg-surface-subtle border border-surface-border flex items-center justify-center text-text-muted">
+                      <FolderPlus className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-bold text-text-main">
+                        Choose photo to resize & crop
+                      </h4>
+                      <p className="text-xs text-text-muted">
+                        Select a photo from your gallery or files
+                      </p>
+                    </div>
+                    <Button
+                      variant="primary"
+                      size="md"
+                      onClick={() => fileInputRef.current?.click()}
+                      leftIcon={<FolderPlus className="w-4 h-4" />}
+                      className="font-bold shadow-sm"
+                    >
+                      Choose files
+                    </Button>
                   </div>
-                  <Button
-                    variant="primary"
-                    size="md"
-                    disabled={isImporting}
-                    onClick={() => fileInputRef.current?.click()}
-                    leftIcon={isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderPlus className="w-4 h-4" />}
-                    className="font-bold shadow-sm"
-                  >
-                    {isImporting ? 'Reading Photo...' : 'Choose files'}
-                  </Button>
-                </div>
+                )
               ) : (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between pb-2 border-b border-surface-border">

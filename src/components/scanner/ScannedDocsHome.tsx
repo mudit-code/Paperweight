@@ -19,7 +19,7 @@ import { Button } from '../ui/Button';
 export interface ScannedDocsHomeProps {
   onStartNewScan: () => void;
   onModifyScan: (scan: StoredScanDoc) => void;
-  onAddFiles?: (files: File[]) => void;
+  onAddFiles?: (files: File[]) => void | Promise<void>;
   onViewPdf?: (blob: Blob, name: string) => void;
 }
 
@@ -31,6 +31,8 @@ export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
 }) => {
   const [scans, setScans] = useState<StoredScanDoc[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isImportingFiles, setIsImportingFiles] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [loadingPdfScanId, setLoadingPdfScanId] = useState<string | null>(null);
   const [deleteScanTarget, setDeleteScanTarget] = useState<StoredScanDoc | null>(null);
   const addFilesInputRef = useRef<HTMLInputElement>(null);
@@ -120,12 +122,20 @@ export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
     setDeleteScanTarget(null);
   };
 
+  const handleProcessFiles = async (fileList: FileList | File[]) => {
+    if (!fileList || fileList.length === 0 || !onAddFiles) return;
+    const selected = Array.from(fileList);
+    setIsImportingFiles(true);
+    try {
+      await onAddFiles(selected);
+    } finally {
+      setIsImportingFiles(false);
+    }
+  };
+
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const selected = Array.from(e.target.files);
-      if (onAddFiles) {
-        onAddFiles(selected);
-      }
+    if (e.target.files) {
+      handleProcessFiles(e.target.files);
     }
     e.target.value = '';
   };
@@ -206,27 +216,61 @@ export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
                   <span className="text-[11px] font-mono font-semibold text-text-muted uppercase tracking-wider block mb-2 px-0.5">
                     New PDF
                   </span>
-                  <div className="rounded-sheet border border-surface-border bg-surface-panel p-5 sm:p-6 space-y-3.5 shadow-xs text-center flex flex-col items-center">
-                    <div className="space-y-1 max-w-md">
-                      <h2 className="text-lg sm:text-xl font-bold text-text-main tracking-tight">
-                        Import a document
-                      </h2>
-                      <p className="text-xs sm:text-sm text-text-muted leading-relaxed">
-                        Pick photos or document files from your computer to create and organize a clean PDF.
-                      </p>
-                    </div>
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDragOver(true);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDragOver(false);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDragOver(false);
+                      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        handleProcessFiles(e.dataTransfer.files);
+                      }
+                    }}
+                    className={`rounded-sheet border transition-all duration-150 p-5 sm:p-6 space-y-3.5 shadow-xs text-center flex flex-col items-center ${
+                      isDragOver
+                        ? 'border-accent bg-surface-hover shadow-lifted'
+                        : 'border-surface-border bg-surface-panel'
+                    }`}
+                  >
+                    {isImportingFiles ? (
+                      <div className="py-4 flex flex-col items-center justify-center space-y-2.5 animate-in fade-in duration-150">
+                        <Loader2 className="w-8 h-8 text-accent animate-spin" />
+                        <p className="text-sm font-semibold text-text-main">Reading and organizing document...</p>
+                        <p className="text-xs text-text-muted">Extracting pages on this device</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-1 max-w-md">
+                          <h2 className="text-lg sm:text-xl font-bold text-text-main tracking-tight">
+                            Import a document
+                          </h2>
+                          <p className="text-xs sm:text-sm text-text-muted leading-relaxed">
+                            Pick photos or document files from your computer to create and organize a clean PDF.
+                          </p>
+                        </div>
 
-                    <div className="pt-1">
-                      <Button
-                        variant="primary"
-                        size="md"
-                        onClick={() => addFilesInputRef.current?.click()}
-                        leftIcon={<FolderPlus className="w-4 h-4" />}
-                        className="w-auto px-8 font-semibold shadow-xs"
-                      >
-                        Add files
-                      </Button>
-                    </div>
+                        <div className="pt-1">
+                          <Button
+                            variant="primary"
+                            size="md"
+                            onClick={() => addFilesInputRef.current?.click()}
+                            leftIcon={<FolderPlus className="w-4 h-4" />}
+                            className="w-auto px-8 font-semibold shadow-xs"
+                          >
+                            Add files
+                          </Button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -250,10 +294,15 @@ export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
                 }`}>
 
             {scans.map((scan) => {
-              const dateStr = new Date(scan.createdAt).toLocaleDateString('en-GB', {
+              const scanDate = new Date(scan.createdAt);
+              const dateStr = scanDate.toLocaleDateString('en-GB', {
                 day: '2-digit',
                 month: '2-digit',
                 year: '2-digit',
+              });
+              const timeStr = scanDate.toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
               });
 
               return (
@@ -316,6 +365,8 @@ export const ScannedDocsHome: React.FC<ScannedDocsHomeProps> = ({
                       <div className="flex items-center gap-1.5 text-xs font-mono text-text-muted mt-1">
                         <Clock className="w-3.5 h-3.5" />
                         <span>{dateStr}</span>
+                        <span className="text-text-muted/60">•</span>
+                        <span>{timeStr}</span>
                       </div>
                     </div>
 

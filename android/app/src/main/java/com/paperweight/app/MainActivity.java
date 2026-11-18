@@ -452,7 +452,7 @@ public class MainActivity extends BridgeActivity {
                         if (!cacheDir.exists()) cacheDir.mkdirs();
 
                         ArrayList<Uri> fileUris = new ArrayList<>();
-                        String commonMimeType = "image/*";
+                        String commonMimeType = "application/octet-stream";
                         if (mimeTypes != null && mimeTypes.length > 0 && mimeTypes[0] != null && !mimeTypes[0].isEmpty()) {
                             commonMimeType = mimeTypes[0];
                         }

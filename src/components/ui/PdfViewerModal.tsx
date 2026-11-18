@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ArrowLeft,
   Share2,
@@ -24,7 +25,7 @@ import { downloadBlob, shareBlob, isMobileApp } from '../../core/processors/down
 import { formatBytes } from '../../core/files/validation';
 import { registerBackHandler } from '../../core/navigation/backButton';
 import { CanvasPool } from '../../core/pdf/canvasPool';
-import { RenderQueue, type PageRenderState, type RenderQueueStats } from '../../core/pdf/renderQueue';
+import { RenderQueue, type PageRenderState } from '../../core/pdf/renderQueue';
 import {
   computeVisiblePageRange,
   getScrollOffsetForPage,
@@ -128,11 +129,6 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
     onCloseRef.current();
   }, []);
 
-  // Time-to-First-Page tracking
-  const [timeToFirstPage, setTimeToFirstPage] = useState<number | null>(null);
-  const openStartTimeRef = useRef(0);
-  const page1RenderedRef = useRef(false);
-
   // Zoom State: interactiveScale drives real-time DOM layout; settledScale drives PDF.js rasterization
   const [interactiveScale, setInteractiveScale] = useState(1.0);
   const interactiveScaleRef = useRef(1.0);
@@ -174,7 +170,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
 
   // Desktop Mode & Controls
   const isDesktop = !isMobileApp();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [fitMode, setFitMode] = useState<'width' | 'page' | null>('width');
   const [pageInputText, setPageInputText] = useState(String(currentPage));
 
@@ -437,9 +433,6 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
     setHighlightsByPage(new Map());
     setCurrentMatchIndex(0);
     setAspectRatioMap(new Map());
-    openStartTimeRef.current = performance.now();
-    setTimeToFirstPage(null);
-    page1RenderedRef.current = false;
     setInteractiveScale(1.0);
     setSettledScale(1.0);
     RenderQueue.getInstance().clear();
@@ -450,7 +443,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
         if (isCancelled) return;
 
         const loadingTask = pdfjsLib.getDocument({
-          data: new Uint8Array(buffer),
+          data: new Uint8Array(buffer.slice(0)),
           standardFontDataUrl: getStandardFontsUrl(),
           cMapUrl: getCMapUrl(),
           cMapPacked: true,
@@ -693,13 +686,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
   // Track sharp render completion & trigger deferred prober after Page 1 is on-screen
   const handlePageRenderComplete = useCallback(
     (pageNumber: number) => {
-      if (pageNumber === 1 && !page1RenderedRef.current) {
-        page1RenderedRef.current = true;
-        if (openStartTimeRef.current > 0) {
-          const ttfp = Math.round(performance.now() - openStartTimeRef.current);
-          setTimeToFirstPage(ttfp);
-        }
-
+      if (pageNumber === 1) {
         // Defer background dimension probing until Page 1 is rendered!
         if (pdfDoc && totalPages > 1 && !proberHandleRef.current) {
           proberHandleRef.current = probeAllPageDimensions(
@@ -1609,14 +1596,27 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
     }
   }
 
-  return (
-    <div data-pdf-modal="true" className="fixed inset-0 z-50 bg-surface-bg flex flex-col animate-in fade-in duration-150 select-none">
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div data-pdf-modal="true" className="fixed inset-0 z-[100] bg-surface-bg flex flex-col animate-in fade-in duration-150 select-none">
       {/* Top Header Bar */}
       {isDesktop ? (
         /* Desktop Top Header Bar */
         <header className="w-full bg-surface-panel border-b border-surface-border px-3 sm:px-4 py-1.5 flex items-center justify-between shrink-0 relative z-30 select-none">
-          {/* Left: Sidebar Toggle, Document Title */}
+          {/* Left: Back Button, Sidebar Toggle, Document Title */}
           <div className="flex items-center gap-2 min-w-0">
+            <button
+              type="button"
+              onClick={handleModalClose}
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-control border border-surface-border bg-surface-panel hover:bg-surface-hover text-xs font-semibold text-text-main transition-colors cursor-pointer shrink-0"
+              title="Back (Esc)"
+              aria-label="Back"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back</span>
+            </button>
+
             {/* Sidebar Toggle Option */}
             {!isSmallSpace && (
               <button
@@ -2143,13 +2143,6 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
 
 
 
-        {/* Dev-only FPS and Memory Budget Overlay */}
-        {import.meta.env.DEV && (
-          <PdfDevOverlay
-            settledScale={settledScale}
-            timeToFirstPage={timeToFirstPage}
-          />
-        )}
         </div>
       </div>
 
@@ -2209,7 +2202,8 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 };
 
@@ -2708,142 +2702,4 @@ const PdfPageCanvas = React.memo(
     prev.viewportTick === next.viewportTick
 );
 
-// ---------------------------------------------------------------------------
-// Dev-only FPS, Memory, TTFP, and Render States Overlay
-// ---------------------------------------------------------------------------
-interface PdfDevOverlayProps {
-  settledScale: number;
-  timeToFirstPage: number | null;
-}
 
-const PdfDevOverlay: React.FC<PdfDevOverlayProps> = ({
-  settledScale,
-  timeToFirstPage,
-}) => {
-  const [fps, setFps] = useState(60);
-  const [stats, setStats] = useState({
-    liveCanvases: 0,
-    displayPixels: 0,
-    offscreenPixels: 0,
-    totalPixels: 0,
-    totalMB: 0,
-    isOffscreenActive: false,
-  });
-  const [rqStats, setRqStats] = useState<RenderQueueStats>({
-    queued: 0,
-    rendering: 0,
-    done: 0,
-    failed: 0,
-    currentRenderingPage: null,
-    watchdogLogs: [],
-  });
-  const [isExpanded, setIsExpanded] = useState(true);
-
-  useEffect(() => {
-    let frameCount = 0;
-    let lastTime = performance.now();
-    let animId: number;
-
-    const measure = (now: number) => {
-      frameCount++;
-      if (now - lastTime >= 500) {
-        setFps(Math.round((frameCount * 1000) / (now - lastTime)));
-        frameCount = 0;
-        lastTime = now;
-        setStats(CanvasPool.getStats());
-        setRqStats(RenderQueue.getInstance().getStats());
-      }
-      animId = requestAnimationFrame(measure);
-    };
-
-    animId = requestAnimationFrame(measure);
-    return () => cancelAnimationFrame(animId);
-  }, []);
-
-  const totalMP = (stats.totalPixels / (1024 * 1024)).toFixed(2);
-  const budgetPercent = Math.min(100, Math.round((stats.totalPixels / (32 * 1024 * 1024)) * 100));
-
-  return (
-    <div
-      onClick={() => setIsExpanded((prev) => !prev)}
-      className="fixed top-14 right-3 z-50 cursor-pointer select-none font-mono text-[11px] leading-tight transition-all duration-150"
-    >
-      {!isExpanded ? (
-        <div className="bg-black/90 border border-emerald-500/40 text-emerald-400 px-2.5 py-1 rounded-full shadow-lg flex items-center gap-2">
-          <span className="font-bold">{fps} FPS</span>
-          <span>•</span>
-          <span>{stats.liveCanvases} Canvases</span>
-          <span>•</span>
-          <span>{totalMP} MP</span>
-        </div>
-      ) : (
-        <div className="bg-black/95 border border-emerald-500/50 text-emerald-400 p-2.5 rounded-xl shadow-2xl backdrop-blur-md flex flex-col gap-1 min-w-[210px]">
-          <div className="flex items-center justify-between border-b border-emerald-500/20 pb-1">
-            <span className="font-bold text-white tracking-wider">DEV STATS</span>
-            <span className="text-[10px] text-emerald-300/80 font-bold">{fps} FPS</span>
-          </div>
-
-          {/* Time to First Page */}
-          <div className="flex items-center justify-between text-yellow-300 font-semibold">
-            <span>TTFP:</span>
-            <span>{timeToFirstPage !== null ? `${timeToFirstPage} ms` : 'Measuring...'}</span>
-          </div>
-
-          {/* Scale */}
-          <div className="flex items-center justify-between">
-            <span>Scale:</span>
-            <span className="font-bold text-white">{settledScale.toFixed(2)}x</span>
-          </div>
-
-          {/* RenderQueue Lifecycle States */}
-          <div className="flex items-center justify-between text-[10px] pt-0.5 border-t border-emerald-500/20">
-            <span className="text-gray-300">Queue:</span>
-            <span className="font-semibold text-white">
-              Q:{rqStats.queued} | R:{rqStats.rendering} | D:{rqStats.done}
-              {rqStats.failed > 0 && <span className="text-red-400"> | F:{rqStats.failed}</span>}
-            </span>
-          </div>
-
-          {/* Active Rendering Page */}
-          <div className="flex items-center justify-between text-[10px]">
-            <span className="text-gray-400">Active:</span>
-            <span className="text-cyan-300 font-medium">
-              {rqStats.currentRenderingPage !== null
-                ? `Page ${rqStats.currentRenderingPage}`
-                : 'idle'}
-            </span>
-          </div>
-
-          {/* Watchdog Warnings */}
-          {rqStats.watchdogLogs.length > 0 && (
-            <div className="text-[9px] text-amber-300 bg-amber-950/60 p-1 rounded border border-amber-600/40">
-              {rqStats.watchdogLogs[rqStats.watchdogLogs.length - 1]}
-            </div>
-          )}
-
-          {/* Memory Budget */}
-          <div className="flex items-center justify-between pt-0.5 border-t border-emerald-500/20">
-            <span>Live Canvases:</span>
-            <span className="font-bold text-white">{stats.liveCanvases}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span>Total VRAM:</span>
-            <span className="font-bold text-white">
-              {totalMP} MP ({stats.totalMB.toFixed(1)} MB)
-            </span>
-          </div>
-
-          {/* Progress Bar of 32 MP Budget */}
-          <div className="w-full bg-emerald-950/80 rounded-full h-1.5 overflow-hidden mt-0.5">
-            <div
-              className={`h-full transition-all duration-300 ${
-                budgetPercent > 80 ? 'bg-red-500' : budgetPercent > 50 ? 'bg-amber-400' : 'bg-emerald-400'
-              }`}
-              style={{ width: `${budgetPercent}%` }}
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};

@@ -263,7 +263,7 @@ export function initializeToolRegistry(): void {
         defaultValue: 40,
         min: 5,
         max: 95,
-        step: 5,
+        step: 1,
       },
       {
         id: 'maxDimension',

@@ -193,8 +193,14 @@ function createWindow() {
   mainWindow.on('maximize', () => setTimeout(() => updateCenteredTitle(mainWindow), 50));
   mainWindow.on('unmaximize', () => setTimeout(() => updateCenteredTitle(mainWindow), 50));
 
-  // Load the Vite-built index.html from the dist folder
-  mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  // In dev mode (VITE_DEV_SERVER_URL or --dev flag), connect to Vite dev server; otherwise load dist
+  const devServerUrl =
+    process.env.VITE_DEV_SERVER_URL || (process.argv.includes('--dev') ? 'http://localhost:5173' : null);
+  if (devServerUrl) {
+    mainWindow.loadURL(devServerUrl);
+  } else {
+    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  }
 
   // Show window once content is ready (avoids white flash)
   mainWindow.once('ready-to-show', () => {
@@ -215,10 +221,14 @@ function createWindow() {
 
   // Open external links in the system browser, not inside the app
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http://') || url.startsWith('https://')) {
+    if (
+      (url.startsWith('http://') || url.startsWith('https://')) &&
+      (!devServerUrl || !url.startsWith(devServerUrl))
+    ) {
       shell.openExternal(url);
+      return { action: 'deny' };
     }
-    return { action: 'deny' };
+    return { action: 'allow' };
   });
 
   mainWindow.on('closed', () => {

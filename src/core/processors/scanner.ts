@@ -110,8 +110,17 @@ export async function processScanner(
 
     if (isPdf) {
       // Extract pages from PDF using PDF.js
+      let fileBytes: Uint8Array;
+      const isDetached = (file.data as { detached?: boolean }).detached || file.data.byteLength === 0;
+      if (isDetached && file.blob) {
+        const fresh = await file.blob.arrayBuffer();
+        file.data = fresh;
+        fileBytes = new Uint8Array(fresh.slice(0));
+      } else {
+        fileBytes = new Uint8Array(file.data.slice(0));
+      }
       const loadingTask = pdfjsLib.getDocument({
-        data: new Uint8Array(file.data),
+        data: fileBytes,
       });
       const pdf = await loadingTask.promise;
 

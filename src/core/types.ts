@@ -10,6 +10,7 @@ export interface ProcessedFile {
   type: string;
   lastModified: number;
   data: ArrayBuffer;
+  blob?: Blob;
   previewUrl?: string;
   metadata?: Record<string, unknown>;
 }

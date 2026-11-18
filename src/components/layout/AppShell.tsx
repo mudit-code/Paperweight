@@ -31,30 +31,7 @@ import PdfMergeTool from '../../tools/pdf-merge/PdfMergeTool';
 import ImageResizerTool from '../../tools/image-resizer/ImageResizerTool';
 import ResizerTool from '../../tools/resizer/ResizerTool';
 import ScannerTool from '../../tools/scanner/ScannerTool';
-import { LibraryView } from '../../tools/library/LibraryView';
-import { MoveToLibraryModal } from '../ui/MoveToLibraryModal';
-import { LibraryToast } from '../ui/LibraryToast';
-import {
-  saveLibraryAssets,
-  deleteLibraryAssets,
-  getLibraryAssetCount,
-  mapToolToLibraryCategory,
-  type LibraryAsset,
-  type LibrarySection,
-  type LibraryCategory,
-  type DraftWorkspaceSnapshot,
-} from '../../core/library/library-db';
-
-function buildWorkspaceSignature(files: ProcessedFile[], options: Record<string, unknown>): string {
-  const fileSig = files.map((f) => `${f.id}:${f.name}:${f.size}`).join('|');
-  let optsSig = '';
-  try {
-    optsSig = JSON.stringify(options);
-  } catch {
-    optsSig = String(Object.keys(options).length);
-  }
-  return `${fileSig}::${optsSig}`;
-}
+import { DiscardWarningModal } from '../ui/DiscardWarningModal';
 
 const TOOL_COMPONENTS: Record<string, React.ComponentType<ToolProps>> = {
   'converter': ConverterTool,
@@ -81,6 +58,13 @@ export const AppShell: React.FC = () => {
   // Detect if running in online mode (from downloader website or with online query params)
   const [onlineConfig] = useState(() => {
     if (typeof window === 'undefined') return { isOnlineMode: false, targetTool: null };
+    // Desktop Electron app is strictly offline and never in online mode
+    const isElectronEnv =
+      Boolean((window as unknown as { electronAPI?: unknown })?.electronAPI) ||
+      window.location.protocol === 'file:' ||
+      navigator.userAgent.includes('Electron');
+    if (isElectronEnv) return { isOnlineMode: false, targetTool: null };
+
     const params = new URLSearchParams(window.location.search);
     const hash = window.location.hash.replace('#', '').trim();
     const rawTool = params.get('tool') || (hash && !hash.startsWith('/') ? hash : null);
@@ -90,7 +74,7 @@ export const AppShell: React.FC = () => {
       rawMode === 'online' ||
       params.has('online') ||
       Boolean(rawTool) ||
-      window.location.pathname.includes('/app') ||
+      (window.location.protocol !== 'file:' && window.location.pathname.includes('/app')) ||
       window.location.hostname.endsWith('github.io');
 
     const toolAliases: Record<string, string> = {
@@ -161,70 +145,20 @@ export const AppShell: React.FC = () => {
   const [sizeEstimate] = useState<SizeEstimate | null>(null);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
 
-  // Library & Tab Navigation Interception State
-  const [libraryAssetCount, setLibraryAssetCount] = useState<number>(0);
+  // Discard Warning & Tab Navigation Interception State
   const [pendingNavToolId, setPendingNavToolId] = useState<string | null>(null);
-  const [isMoveToLibraryOpen, setIsMoveToLibraryOpen] = useState<boolean>(false);
-  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
-  const lastSavedSignatureRef = useRef<string | null>(null);
+  const [pendingNavBack, setPendingNavBack] = useState<boolean>(false);
+  const [isDiscardWarningOpen, setIsDiscardWarningOpen] = useState<boolean>(false);
 
-  // Gmail-style Library Toast state (5-second undo & dismiss)
-  const [libraryToast, setLibraryToast] = useState<{
-    isOpen: boolean;
-    message: string;
-    assetIds: string[];
-  }>({
-    isOpen: false,
-    message: '',
-    assetIds: [],
-  });
-
-  const addAssetsToLibraryWithToast = async (
-    items: Array<{
-      id?: string;
-      name: string;
-      type?: string;
-      size: number;
-      data: ArrayBuffer;
-      section?: LibrarySection;
-      category?: LibraryCategory;
-      draftSnapshot?: DraftWorkspaceSnapshot;
-    }>,
-    customMessage?: string
-  ) => {
-    try {
-      const saved = await saveLibraryAssets(items);
-      const count = await getLibraryAssetCount();
-      setLibraryAssetCount(count);
-      const ids = saved.map((s) => s.id);
-      const isSingle = ids.length === 1;
-      setLibraryToast({
-        isOpen: true,
-        message: customMessage || (isSingle ? 'Added to library' : `${ids.length} assets added to library`),
-        assetIds: ids,
-      });
-    } catch (err) {
-      console.error('Failed to auto-add to library:', err);
-    }
-  };
-
-  const handleUndoLibraryToast = async () => {
-    if (libraryToast.assetIds.length > 0) {
-      try {
-        await deleteLibraryAssets(libraryToast.assetIds);
-        const count = await getLibraryAssetCount();
-        setLibraryAssetCount(count);
-      } catch (err) {
-        console.error('Failed to undo library addition:', err);
+  const handleOptionsChange = useCallback(
+    (newOptions: Record<string, unknown> | ((prev: Record<string, unknown>) => Record<string, unknown>)) => {
+      setOptions(newOptions);
+      if (result) {
+        setResult(null);
       }
-    }
-    setLibraryToast({ isOpen: false, message: '', assetIds: [] });
-  };
-
-  // Load initial library count
-  useEffect(() => {
-    getLibraryAssetCount().then(setLibraryAssetCount).catch(() => {});
-  }, []);
+    },
+    [result]
+  );
 
   // Cancellation source for ongoing jobs
   const cancelSourceRef = useRef<CancellationTokenSource | null>(null);
@@ -466,6 +400,7 @@ export const AppShell: React.FC = () => {
         type: 'application/pdf',
         size: blob.size,
         data: buf,
+        blob: blob,
         lastModified: Date.now(),
       };
       skipToolResetRef.current = true;
@@ -590,6 +525,7 @@ export const AppShell: React.FC = () => {
         type: blob.type || 'image/jpeg',
         size: blob.size,
         data: buf,
+        blob: blob,
         previewUrl: URL.createObjectURL(blob),
         lastModified: Date.now(),
       };
@@ -617,6 +553,7 @@ export const AppShell: React.FC = () => {
         type: blob.type || 'image/jpeg',
         size: blob.size,
         data: buf,
+        blob: blob,
         previewUrl: URL.createObjectURL(blob),
         lastModified: Date.now(),
       };
@@ -640,6 +577,7 @@ export const AppShell: React.FC = () => {
           type: item.blob.type || 'image/jpeg',
           size: item.blob.size,
           data: buf,
+          blob: item.blob,
           previewUrl: URL.createObjectURL(item.blob),
           lastModified: Date.now(),
         };
@@ -685,7 +623,7 @@ export const AppShell: React.FC = () => {
   }, [files]);
   const handleViewFile = useCallback((file: ProcessedFile) => {
     if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
-      const blob = new Blob([file.data], { type: 'application/pdf' });
+      const blob = file.data instanceof Blob ? file.data : new Blob([file.data], { type: 'application/pdf' });
       setOpenedPdf({ blob, name: file.name });
     } else if (file.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|bmp|gif|tiff?)$/i.test(file.name)) {
       const imageFiles = files.filter((f) => f.type.startsWith('image/') || /\.(jpe?g|png|webp|avif|bmp|gif|tiff?)$/i.test(f.name));
@@ -822,8 +760,6 @@ export const AppShell: React.FC = () => {
       skipToolResetRef.current = false;
       return;
     }
-    setActiveDraftId(null);
-    lastSavedSignatureRef.current = null;
     setFiles([]);
     setResult(null);
     setError(null);
@@ -853,18 +789,35 @@ export const AppShell: React.FC = () => {
     }
   }, [activeToolId]);
 
+  // Track whether the user has saved/downloaded the current result
+  const [hasSavedResult, setHasSavedResult] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleFileSaved = () => {
+      setHasSavedResult(true);
+    };
+    window.addEventListener('paperweight:file-saved', handleFileSaved);
+    return () => window.removeEventListener('paperweight:file-saved', handleFileSaved);
+  }, []);
+
+  // When files, options, or active tool change, reset saved status
+  useEffect(() => {
+    setHasSavedResult(false);
+  }, [files, options, activeToolId]);
+
   const hasInProcessUnsavedWork = () => {
-    if (files.length === 0) return false;
-    if (!result) return true;
-    return buildWorkspaceSignature(files, options) !== lastSavedSignatureRef.current;
+    if (isProcessing) return true;
+    // If the process completed and the user has used the save button, work is saved (no warning needed)
+    if (result && hasSavedResult) return false;
+    return files.length > 0;
   };
 
   const getActionWording = () => {
-    if (activeToolId === 'resizer') return 'resizing';
-    if (activeToolId === 'converter') return 'converting';
-    if (activeToolId === 'image-resizer') return 'compressing';
-    if (activeToolId === 'pdf-merge') return 'merging';
-    if (activeToolId === 'scanner' || activeToolId === 'scans') return 'scanning';
+    if (activeToolId === 'resizer') return 'resizer';
+    if (activeToolId === 'converter') return 'converter';
+    if (activeToolId === 'image-resizer') return 'compressor';
+    if (activeToolId === 'pdf-merge') return 'PDF merger';
+    if (activeToolId === 'scanner' || activeToolId === 'scans') return 'scanner';
     return 'current work';
   };
 
@@ -875,216 +828,62 @@ export const AppShell: React.FC = () => {
     }
     if (targetId === activeToolId) return;
 
-    if (activeToolId !== 'library') {
-      previousToolIdRef.current = activeToolId;
-    }
+    previousToolIdRef.current = activeToolId;
 
-    // Prompt MoveToLibraryModal only when workspace has in-process / modified unsaved work
-    if (hasInProcessUnsavedWork() && activeToolId !== 'library' && activeToolId !== 'scans') {
+    // Prompt DiscardWarningModal if there are unsaved files or an active process
+    if (hasInProcessUnsavedWork() && activeToolId !== 'scans') {
       setPendingNavToolId(targetId);
-      setIsMoveToLibraryOpen(true);
+      setIsDiscardWarningOpen(true);
       return;
     }
 
     if (result) {
       setResult(null);
-      setFiles([]);
     }
-    setActiveDraftId(null);
-    lastSavedSignatureRef.current = null;
-
+    setFiles([]);
     setActiveToolId(targetId);
   };
 
-  const handleConfirmExitAndMove = async () => {
-    try {
-      const category = mapToolToLibraryCategory(activeToolId);
-
-      // In-process workspace (unprocessed, or modified after prior processing) -> save full Draft state
-      if (files.length > 0 && (!result || buildWorkspaceSignature(files, options) !== lastSavedSignatureRef.current)) {
-        let clonedOptions: Record<string, unknown>;
-        try {
-          clonedOptions = JSON.parse(JSON.stringify(options));
-        } catch {
-          clonedOptions = { ...options };
-        }
-        const primaryFile = files[0];
-        const draftName =
-          files.length > 1 ? `${primaryFile.name} (+${files.length - 1} more)` : primaryFile.name;
-
-        await addAssetsToLibraryWithToast(
-          [
-            {
-              id: activeDraftId || undefined,
-              name: draftName,
-              type: primaryFile.type,
-              size: files.reduce((sum, f) => sum + f.size, 0),
-              data: primaryFile.data.slice(0),
-              section: 'drafts',
-              category,
-              draftSnapshot: {
-                toolId: activeToolId,
-                options: clonedOptions,
-                files: files.map((f) => ({
-                  id: f.id,
-                  name: f.name,
-                  type: f.type,
-                  size: f.size,
-                  lastModified: f.lastModified,
-                  data: f.data.slice(0),
-                })),
-              },
-            },
-          ],
-          'Moved to Library Drafts'
-        );
-      } else if (result?.items && result.items.length > 0) {
-        const producedToSave = await Promise.all(
-          result.items.map(async (item) => {
-            const buffer = await item.blob.arrayBuffer();
-            return {
-              name: item.name,
-              type: item.blob.type || (item.fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'),
-              size: item.compressedSize || item.blob.size,
-              data: buffer,
-              section: 'recent' as LibrarySection,
-              category,
-            };
-          })
-        );
-        await addAssetsToLibraryWithToast(producedToSave, 'Saved to Recents');
-      } else if (result?.blob) {
-        const buffer = await result.blob.arrayBuffer();
-        await addAssetsToLibraryWithToast(
-          [
-            {
-              name: result.filename || 'processed_asset',
-              type: result.blob.type || (result.fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'),
-              size: result.size || result.blob.size,
-              data: buffer,
-              section: 'recent',
-              category,
-            },
-          ],
-          'Saved to Recents'
-        );
-      }
-    } catch (err) {
-      console.error('Failed to move assets to library:', err);
+  const handleConfirmDiscard = () => {
+    setIsDiscardWarningOpen(false);
+    setHasSavedResult(false);
+    if (isProcessing) {
+      handleCancel();
     }
-
-    setIsMoveToLibraryOpen(false);
-    setActiveDraftId(null);
-    lastSavedSignatureRef.current = null;
     setFiles([]);
-    setResult(null);
-    if (pendingNavToolId === '__header_back__') {
-      setOptions((prev) => {
-        const next = { ...prev };
-        delete next.converterMode;
-        delete next.compressorMode;
-        return next;
-      });
-      setPendingNavToolId(null);
-    } else if (pendingNavToolId) {
-      setActiveToolId(pendingNavToolId);
-      setPendingNavToolId(null);
-    }
-  };
-
-  const handleConfirmExitWithoutSaving = () => {
-    setIsMoveToLibraryOpen(false);
-    setActiveDraftId(null);
-    lastSavedSignatureRef.current = null;
-    setFiles([]);
-    setResult(null);
-    if (pendingNavToolId === '__header_back__') {
-      setOptions((prev) => {
-        const next = { ...prev };
-        delete next.converterMode;
-        delete next.compressorMode;
-        return next;
-      });
-      setPendingNavToolId(null);
-    } else if (pendingNavToolId) {
-      setActiveToolId(pendingNavToolId);
-      setPendingNavToolId(null);
-    }
-  };
-
-  const handleCancelMoveToLibrary = () => {
-    setIsMoveToLibraryOpen(false);
-    setPendingNavToolId(null);
-  };
-
-  const handleOpenAssetInTool = (
-    targetToolId: string,
-    filesToLoad: ProcessedFile[],
-    initialOptions?: Record<string, unknown>
-  ) => {
-    skipToolResetRef.current = true;
-    setActiveDraftId(null);
-    lastSavedSignatureRef.current = null;
     setResult(null);
     setError(null);
     setProgress(null);
-    setFiles(filesToLoad);
-    if (initialOptions) {
-      setOptions((prev) => ({ ...prev, ...initialOptions }));
+
+    if (pendingNavBack) {
+      setPendingNavBack(false);
+      if (activeToolId === 'converter' && options.converterMode) {
+        setOptions((prev) => {
+          const next = { ...prev };
+          delete next.converterMode;
+          return next;
+        });
+      } else if (activeToolId === 'image-resizer' && options.compressorMode) {
+        setOptions((prev) => {
+          const next = { ...prev };
+          delete next.compressorMode;
+          return next;
+        });
+      } else if (activeToolId === 'resizer') {
+        if (options.resizerStep === 'crop') {
+          setOptions((prev) => ({ ...prev, resizerStep: 'settings' }));
+        }
+      }
+    } else if (pendingNavToolId) {
+      setActiveToolId(pendingNavToolId);
+      setPendingNavToolId(null);
     }
-    setActiveToolId(targetToolId);
   };
 
-  const handleResumeDraft = (asset: LibraryAsset) => {
-    if (asset.draftSnapshot) {
-      const snap = asset.draftSnapshot;
-      const restoredFiles: ProcessedFile[] = snap.files.map((f) => {
-        const dataCopy = f.data.slice(0);
-        const isImg = f.type.startsWith('image/');
-        return {
-          id: f.id,
-          name: f.name,
-          type: f.type,
-          size: f.size,
-          lastModified: f.lastModified,
-          data: dataCopy,
-          previewUrl: isImg ? URL.createObjectURL(new Blob([dataCopy], { type: f.type })) : undefined,
-        };
-      });
-
-      skipToolResetRef.current = true;
-      setActiveDraftId(asset.id);
-      lastSavedSignatureRef.current = null;
-      setResult(null);
-      setError(null);
-      setProgress(null);
-      setFiles(restoredFiles);
-      setOptions({ ...snap.options });
-      setActiveToolId(snap.toolId);
-      return;
-    }
-
-    // Fallback for drafts without snapshot: infer tool from category & asset kind
-    const dataCopy = asset.data.slice(0);
-    const pf: ProcessedFile = {
-      id: `f_draft_${Date.now()}`,
-      name: asset.name,
-      type: asset.type,
-      size: asset.size,
-      lastModified: asset.createdAt,
-      data: dataCopy,
-      previewUrl: asset.kind === 'image' ? URL.createObjectURL(new Blob([dataCopy], { type: asset.type })) : undefined,
-    };
-
-    if (asset.category === 'compression') {
-      handleOpenAssetInTool('image-resizer', [pf], { compressorMode: asset.kind === 'pdf' ? 'pdf' : 'image' });
-    } else if (asset.category === 'merges') {
-      handleOpenAssetInTool('pdf-merge', [pf]);
-    } else if (asset.category === 'resizes' && asset.kind === 'image') {
-      handleOpenAssetInTool('resizer', [pf]);
-    } else {
-      handleOpenAssetInTool('converter', [pf], { converterMode: asset.kind === 'pdf' ? 'pdf-to-img' : 'img-to-pdf' });
-    }
+  const handleCancelDiscard = () => {
+    setIsDiscardWarningOpen(false);
+    setPendingNavToolId(null);
+    setPendingNavBack(false);
   };
 
   // Alt+<number> shortcut handler: disabled when focused on inputs
@@ -1123,10 +922,11 @@ export const AppShell: React.FC = () => {
   // Android hardware back button & system navigation handler
   useEffect(() => {
     const handleAppBack = (e: Event) => {
-      // 1. If MoveToLibraryModal is open, dismiss it
-      if (isMoveToLibraryOpen) {
-        setIsMoveToLibraryOpen(false);
+      // 1. If DiscardWarningModal is open, dismiss it
+      if (isDiscardWarningOpen) {
+        setIsDiscardWarningOpen(false);
         setPendingNavToolId(null);
+        setPendingNavBack(false);
         e.preventDefault();
         return;
       }
@@ -1138,10 +938,10 @@ export const AppShell: React.FC = () => {
         return;
       }
 
-      // 3. If there are in-process unsaved files in current tool, prompt MoveToLibraryModal (Drafts)
-      if (hasInProcessUnsavedWork() && activeToolId !== 'library' && activeToolId !== 'scans') {
+      // 3. If there are in-process unsaved files or active process, prompt DiscardWarningModal
+      if (hasInProcessUnsavedWork() && activeToolId !== 'scans') {
         setPendingNavToolId('converter');
-        setIsMoveToLibraryOpen(true);
+        setIsDiscardWarningOpen(true);
         e.preventDefault();
         return;
       }
@@ -1156,7 +956,7 @@ export const AppShell: React.FC = () => {
 
     window.addEventListener('paperweight:back', handleAppBack);
     return () => window.removeEventListener('paperweight:back', handleAppBack);
-  }, [isMoveToLibraryOpen, isSettingsOpen, files, options, result, activeToolId]);
+  }, [isDiscardWarningOpen, isSettingsOpen, files, options, result, activeToolId, isProcessing, hasSavedResult]);
 
   const activeManifest = toolRegistry.getById(activeToolId) || tools[0];
   const ActiveToolComponent = TOOL_COMPONENTS[activeToolId] || ImageToPdfTool;
@@ -1164,6 +964,7 @@ export const AppShell: React.FC = () => {
   const handleExecute = async () => {
     if (files.length === 0 || isProcessing) return;
 
+    setHasSavedResult(false);
     setIsProcessing(true);
     setError(null);
     setResult(null);
@@ -1197,66 +998,6 @@ export const AppShell: React.FC = () => {
       );
 
       setResult(batchResult);
-      lastSavedSignatureRef.current = buildWorkspaceSignature(files, options);
-
-      // Auto-save produced image or PDF to Library -> Recently Processed (Disabled in online mode)
-      if (!isOnlineMode) {
-        try {
-          const category = mapToolToLibraryCategory(activeToolId);
-          const producedToSave: Array<{
-            name: string;
-            type: string;
-            size: number;
-            data: ArrayBuffer;
-            section: LibrarySection;
-            category: LibraryCategory;
-          }> = [];
-
-          if (batchResult.items && batchResult.items.length > 0) {
-            for (const item of batchResult.items) {
-              if (item.blob) {
-                const buffer = await item.blob.arrayBuffer();
-                producedToSave.push({
-                  name: item.name || 'processed_asset',
-                  type: item.blob.type || (item.fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'),
-                  size: item.compressedSize || item.blob.size,
-                  data: buffer,
-                  section: 'recent',
-                  category,
-                });
-              }
-            }
-          } else if (batchResult.blob) {
-            const buffer = await batchResult.blob.arrayBuffer();
-            producedToSave.push({
-              name: batchResult.filename || 'processed_asset',
-              type: batchResult.blob.type || (batchResult.fileType === 'pdf' ? 'application/pdf' : 'image/jpeg'),
-              size: batchResult.size || batchResult.blob.size,
-              data: buffer,
-              section: 'recent',
-              category,
-            });
-          }
-
-          if (producedToSave.length > 0) {
-            await addAssetsToLibraryWithToast(
-              producedToSave,
-              producedToSave.length === 1
-                ? 'Saved to Recents'
-                : `${producedToSave.length} items saved to Recents`
-            );
-          }
-
-          if (activeDraftId) {
-            await deleteLibraryAssets([activeDraftId]);
-            const count = await getLibraryAssetCount();
-            setLibraryAssetCount(count);
-            setActiveDraftId(null);
-          }
-        } catch (saveErr) {
-          console.error('Auto-save to library failed:', saveErr);
-        }
-      }
 
       // Allow smooth transition to reach 100% before dismissing progress display
       setTimeout(() => {
@@ -1295,14 +1036,9 @@ export const AppShell: React.FC = () => {
     );
 
   const handleHeaderBack = () => {
-    if (
-      hasInProcessUnsavedWork() &&
-      ((activeToolId === 'converter' && Boolean(options.converterMode)) ||
-        (activeToolId === 'image-resizer' && Boolean(options.compressorMode)) ||
-        (activeToolId === 'resizer' && files.length > 0))
-    ) {
-      setPendingNavToolId('__header_back__');
-      setIsMoveToLibraryOpen(true);
+    if (hasInProcessUnsavedWork()) {
+      setPendingNavBack(true);
+      setIsDiscardWarningOpen(true);
       return;
     }
 
@@ -1312,8 +1048,6 @@ export const AppShell: React.FC = () => {
         delete next.converterMode;
         return next;
       });
-      setActiveDraftId(null);
-      lastSavedSignatureRef.current = null;
       setFiles([]);
       if (result) setResult(null);
       if (error) setError(null);
@@ -1323,8 +1057,6 @@ export const AppShell: React.FC = () => {
         delete next.compressorMode;
         return next;
       });
-      setActiveDraftId(null);
-      lastSavedSignatureRef.current = null;
       setFiles([]);
       if (result) setResult(null);
       if (error) setError(null);
@@ -1333,8 +1065,6 @@ export const AppShell: React.FC = () => {
         setOptions((prev) => ({ ...prev, resizerStep: 'settings' }));
         if (result) setResult(null);
       } else {
-        setActiveDraftId(null);
-        lastSavedSignatureRef.current = null;
         setFiles([]);
         if (result) setResult(null);
         if (error) setError(null);
@@ -1359,10 +1089,11 @@ export const AppShell: React.FC = () => {
         return;
       }
 
-      if (isMoveToLibraryOpen) {
+      if (isDiscardWarningOpen) {
         e.preventDefault();
-        setIsMoveToLibraryOpen(false);
+        setIsDiscardWarningOpen(false);
         setPendingNavToolId(null);
+        setPendingNavBack(false);
         return;
       }
 
@@ -1420,7 +1151,7 @@ export const AppShell: React.FC = () => {
   }, [
     isEditorOpen,
     isCameraOpen,
-    isMoveToLibraryOpen,
+    isDiscardWarningOpen,
     isSettingsOpen,
     isOptionsOpenMobile,
     activeToolId,
@@ -1429,11 +1160,12 @@ export const AppShell: React.FC = () => {
     isGalleryOpen,
     files,
     result,
+    hasSavedResult,
+    isProcessing,
   ]);
 
   const getToolDisplayName = () => {
     if (activeToolId === 'scans') return 'Scans';
-    if (activeToolId === 'library') return 'Library';
     if (activeToolId === 'pdf-merge') return 'Merge';
     if (activeToolId === 'converter') {
       const mode = options.converterMode as string | undefined;
@@ -1465,7 +1197,7 @@ export const AppShell: React.FC = () => {
     (activeToolId === 'image-resizer' && isNarrowViewport && !options.compressorMode);
 
   const shouldShowOptionsPanel =
-    activeToolId !== 'scans' && activeToolId !== 'library' && !isSelectingOption && Boolean(activeManifest);
+    activeToolId !== 'scans' && !isSelectingOption && Boolean(activeManifest);
 
   return (
     <div className="fixed inset-0 flex flex-col h-full w-full overflow-hidden bg-surface-bg text-text-main font-sans">
@@ -1479,22 +1211,18 @@ export const AppShell: React.FC = () => {
             onSelectTool={requestSelectTool}
             isOpenMobile={isSidebarOpenMobile}
             onCloseMobile={() => setIsSidebarOpenMobile(false)}
-            libraryCount={libraryAssetCount}
           />
         )}
 
         {/* Right Column: Top Header + Workspace Canvas (Hidden during full-screen camera/editor scanning) */}
         <div className={`flex-1 flex flex-col min-w-0 h-full overflow-hidden ${isScanningOrEditing ? 'hidden' : ''}`}>
-        {/* Top Header of the Workspace Area (permanently fixed at top, never scrolls) */}
-        {activeToolId !== 'library' && (
+          {/* Top Header of the Workspace Area (permanently fixed at top, never scrolls) */}
           <div className="shrink-0 sticky top-0 z-20 w-full">
             <Header
               activeToolName={getToolDisplayName()}
               hasOptionsPanel={shouldShowOptionsPanel}
               isOnlineMode={isOnlineMode}
               onOpenSettings={isOnlineMode ? undefined : () => setIsSettingsOpen(true)}
-              onOpenLibrary={isOnlineMode ? undefined : () => requestSelectTool('library')}
-              libraryCount={libraryAssetCount}
               onToggleSidebar={isOnlineMode || isMobileApp() ? undefined : () => setIsSidebarOpenMobile(true)}
               canGoBack={canGoBack}
               onBack={handleHeaderBack}
@@ -1507,72 +1235,56 @@ export const AppShell: React.FC = () => {
               }
             />
           </div>
-        )}
 
-        {/* Main 2-Pane Workspace */}
-        <div className="flex flex-1 overflow-hidden relative">
-          {/* Center Primary Workspace */}
-          <main
-            role="main"
-            className={`flex-1 flex flex-col min-w-0 ${
-              activeToolId === 'resizer' || activeToolId === 'scans' || activeToolId === 'library' || (isMobile && activeToolId === 'image-resizer') || (isMobile && activeToolId === 'pdf-merge') || (isMobile && activeToolId === 'converter')
-                ? 'p-0 bg-surface-bg overflow-hidden h-full'
-                : `bg-surface-bg overflow-y-auto pl-[var(--safe-area-left)] pr-[var(--safe-area-right)] ${
-                    isMobile
-                      ? 'pb-[calc(4.5rem+var(--safe-area-bottom))] lg:pb-0'
-                      : 'pb-6 lg:pb-6'
-                  } p-2 sm:p-3 lg:p-6`
-            }`}
-          >
-            {activeToolId === 'scans' ? (
-              <ScannedDocsHome
-                key={scansRefreshKey}
-                onStartNewScan={() => {
-                  if (isMobileApp()) {
-                    setCameraCapturedFiles([]);
+          {/* Main 2-Pane Workspace */}
+          <div className="flex flex-1 overflow-hidden relative">
+            {/* Center Primary Workspace */}
+            <main
+              role="main"
+              className={`flex-1 flex flex-col min-w-0 ${
+                activeToolId === 'resizer' || activeToolId === 'scans' || (isMobile && activeToolId === 'image-resizer') || (isMobile && activeToolId === 'pdf-merge') || (isMobile && activeToolId === 'converter')
+                  ? 'p-0 bg-surface-bg overflow-hidden h-full'
+                  : `bg-surface-bg overflow-y-auto pl-[var(--safe-area-left)] pr-[var(--safe-area-right)] ${
+                      isMobile
+                        ? 'pb-[calc(4.5rem+var(--safe-area-bottom))] lg:pb-0'
+                        : 'pb-6 lg:pb-6'
+                    } p-2 sm:p-3 lg:p-6`
+              }`}
+            >
+              {activeToolId === 'scans' ? (
+                <ScannedDocsHome
+                  key={scansRefreshKey}
+                  onStartNewScan={() => {
+                    if (isMobileApp()) {
+                      setCameraCapturedFiles([]);
+                      setEditingScan(null);
+                      setIsCameraOpen(true);
+                    } else {
+                      desktopScanFilesInputRef.current?.click();
+                    }
+                  }}
+                  onAddFiles={async (newFiles) => {
+                    const converted = await convertFilesToImagePages(newFiles);
+                    if (converted.length === 0) return;
+                    setCameraCapturedFiles(converted);
                     setEditingScan(null);
-                    setIsCameraOpen(true);
-                  } else {
-                    desktopScanFilesInputRef.current?.click();
-                  }
-                }}
-                onAddFiles={async (newFiles) => {
-                  const converted = await convertFilesToImagePages(newFiles);
-                  if (converted.length === 0) return;
-                  setCameraCapturedFiles(converted);
-                  setEditingScan(null);
-                  setRetakeIndex(null);
-                  setIsCameraOpen(false);
-                  setIsEditorOpen(true);
-                }}
-                onModifyScan={(scan) => {
-                  setEditingScan(scan);
-                  setCameraCapturedFiles([]);
-                  setIsEditorOpen(true);
-                }}
-                onViewPdf={isOnlineMode ? undefined : (blob, name) => setOpenedPdf({ blob, name })}
-              />
-            ) : activeToolId === 'library' ? (
-              <LibraryView
-                onBack={() => requestSelectTool(previousToolIdRef.current || 'scans')}
-                onOpenInTool={handleOpenAssetInTool}
-                onResumeDraft={handleResumeDraft}
-                onViewPdf={isOnlineMode ? undefined : (blob, name) => setOpenedPdf({ blob, name })}
-                onViewImages={isOnlineMode ? undefined : (images, initialIndex = 0) => {
-                  setGalleryImages(images);
-                  setGalleryInitialIndex(initialIndex);
-                  setIsGalleryOpen(true);
-                }}
-                onOpenSettings={isOnlineMode ? undefined : () => setIsSettingsOpen(true)}
-                onToggleSidebar={isOnlineMode || isMobileApp() ? undefined : () => setIsSidebarOpenMobile(true)}
-                onAssetCountChange={setLibraryAssetCount}
-              />
-            ) : (
-              <ActiveToolComponent
-                files={files}
-                onFilesChange={setFiles}
-                options={options}
-                onOptionsChange={setOptions}
+                    setRetakeIndex(null);
+                    setIsCameraOpen(false);
+                    setIsEditorOpen(true);
+                  }}
+                  onModifyScan={(scan) => {
+                    setEditingScan(scan);
+                    setCameraCapturedFiles([]);
+                    setIsEditorOpen(true);
+                  }}
+                  onViewPdf={isOnlineMode ? undefined : (blob, name) => setOpenedPdf({ blob, name })}
+                />
+              ) : (
+                <ActiveToolComponent
+                  files={files}
+                  onFilesChange={setFiles}
+                  options={options}
+                  onOptionsChange={handleOptionsChange}
                 isProcessing={isProcessing}
                 progress={progress}
                 result={result}
@@ -1599,7 +1311,7 @@ export const AppShell: React.FC = () => {
                   files={files}
                   onFilesChange={setFiles}
                   options={options}
-                  onOptionsChange={setOptions}
+                  onOptionsChange={handleOptionsChange}
                   isProcessing={isProcessing}
                   sizeEstimate={sizeEstimate}
                   onExecute={handleExecute}
@@ -1623,7 +1335,7 @@ export const AppShell: React.FC = () => {
                 files={files}
                 onFilesChange={setFiles}
                 options={options}
-                onOptionsChange={setOptions}
+                onOptionsChange={handleOptionsChange}
                 isProcessing={isProcessing}
                 sizeEstimate={sizeEstimate}
                 onExecute={handleExecute}
@@ -1662,6 +1374,7 @@ export const AppShell: React.FC = () => {
                 type: file.type || 'application/octet-stream',
                 lastModified: file.lastModified,
                 data: buffer,
+                blob: file,
                 previewUrl,
               };
             })
@@ -1689,6 +1402,7 @@ export const AppShell: React.FC = () => {
                 type: file.type || 'application/pdf',
                 lastModified: file.lastModified,
                 data: buffer,
+                blob: file,
               };
             })
           );
@@ -1755,6 +1469,7 @@ export const AppShell: React.FC = () => {
               type: file.type || 'image/jpeg',
               lastModified: file.lastModified,
               data: buffer,
+              blob: file,
             };
             if (result) setResult(null);
             setFiles([processed]);
@@ -1764,8 +1479,8 @@ export const AppShell: React.FC = () => {
         className="hidden"
       />
 
-      {/* Mobile Bottom Navigation Bar (Visible on mobile devices < lg, NEVER on desktop apps, hidden when in Library or Online Mode) */}
-      {!isOnlineMode && isMobile && activeToolId !== 'library' && (
+      {/* Mobile Bottom Navigation Bar (Visible on mobile devices < lg, NEVER on desktop apps, hidden in Online Mode) */}
+      {!isOnlineMode && isMobile && (
         <MobileNavBar
           activeToolId={activeToolId}
           onSelectTool={(id) => {
@@ -1861,23 +1576,7 @@ export const AppShell: React.FC = () => {
             desktopReplaceFileInputRef.current?.click();
           }
         }}
-        onSavePdf={async (pdfBlob, filename) => {
-          if (pdfBlob && !isOnlineMode) {
-            try {
-              const buffer = await pdfBlob.arrayBuffer();
-              const processed = {
-                name: filename || `Scan_${new Date().toISOString().slice(0, 10)}.pdf`,
-                type: 'application/pdf',
-                size: pdfBlob.size,
-                data: buffer,
-                section: 'recent' as LibrarySection,
-                category: 'conversion' as LibraryCategory,
-              };
-              await addAssetsToLibraryWithToast([processed], 'Saved to Recents');
-            } catch (err) {
-              console.error('Failed to add scan PDF to library:', err);
-            }
-          }
+        onSavePdf={async () => {
           setIsEditorOpen(false);
           setEditingScan(null);
           setCameraCapturedFiles([]);
@@ -1900,7 +1599,7 @@ export const AppShell: React.FC = () => {
           }}
           pdfBlob={openedPdf?.blob ?? null}
           fileName={openedPdf?.name || initialPendingPdfName || 'Document.pdf'}
-          onCompress={handleCompressPdfFromViewer}
+          onCompress={activeToolId === 'image-resizer' ? undefined : handleCompressPdfFromViewer}
         />
       )}
 
@@ -1919,25 +1618,14 @@ export const AppShell: React.FC = () => {
         />
       )}
 
-      {/* Confirmation modal for quitting work and moving assets to Library - Disabled in Online Mode */}
+      {/* Confirmation modal for discarding in-progress work - Disabled in Online Mode */}
       {!isOnlineMode && (
-        <MoveToLibraryModal
-          isOpen={isMoveToLibraryOpen}
-          actionWording={getActionWording()}
+        <DiscardWarningModal
+          isOpen={isDiscardWarningOpen}
           itemCount={files.length}
-          onExitAndMove={handleConfirmExitAndMove}
-          onExitWithoutSaving={handleConfirmExitWithoutSaving}
-          onCancel={handleCancelMoveToLibrary}
-        />
-      )}
-
-      {/* Gmail-style Library Toast Notification with 5s Undo & Dismiss - Disabled in Online Mode */}
-      {!isOnlineMode && (
-        <LibraryToast
-          isOpen={libraryToast.isOpen}
-          message={libraryToast.message}
-          onUndo={handleUndoLibraryToast}
-          onClose={() => setLibraryToast((prev) => ({ ...prev, isOpen: false }))}
+          actionWording={getActionWording()}
+          onCancel={handleCancelDiscard}
+          onConfirm={handleConfirmDiscard}
         />
       )}
 

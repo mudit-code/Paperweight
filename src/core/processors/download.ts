@@ -68,7 +68,10 @@ export async function downloadBlob(blob: Blob, filename: string): Promise<void> 
     try {
       const base64 = await blobToBase64(blob);
       const success = window.AndroidBridge.saveFile(base64, filename, blob.type || 'application/octet-stream');
-      if (success) return;
+      if (success) {
+        window.dispatchEvent(new CustomEvent('paperweight:file-saved', { detail: { filename } }));
+        return;
+      }
     } catch (e) {
       console.warn('Native AndroidBridge save failed, falling back to browser download:', e);
     }
@@ -86,6 +89,10 @@ export async function downloadBlob(blob: Blob, filename: string): Promise<void> 
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }, 1000);
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('paperweight:file-saved', { detail: { filename } }));
+  }
 }
 
 /**
@@ -117,6 +124,7 @@ export async function saveMultipleBlobs(
       const success = window.AndroidBridge.saveFiles(base64List, filenames, mimeTypes);
       if (success) {
         onProgress?.(items.length, items.length);
+        window.dispatchEvent(new CustomEvent('paperweight:file-saved', { detail: { count: items.length } }));
         return;
       }
     } catch (e) {
@@ -133,17 +141,24 @@ export async function saveMultipleBlobs(
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('paperweight:file-saved', { detail: { count: items.length } }));
+  }
 }
 
 // Alias for semantic clarity across all tools
 export const saveBlob = downloadBlob;
 
 /**
- * Shares a document with the required Paperweight caption.
- * On Android, uses AndroidBridge to open the native share sheet.
- * On Web, uses the Web Share API if supported.
+ * Shares a document or image with the required Paperweight caption.
+ * When sharing an image, shares it as a raw document ('application/octet-stream')
+ * so that receiving apps (such as WhatsApp, Telegram, etc.) do NOT compress or downscale it,
+ * ensuring the shared image is 100% identical in size, resolution, and aspect ratio.
  */
 export async function shareBlob(blob: Blob, filename: string, caption = SHARE_CAPTION): Promise<void> {
+  const isImage = (blob.type && blob.type.startsWith('image/')) || /\.(jpe?g|png|webp|bmp|tiff|avif|heic)$/i.test(filename);
+  const shareMimeType = isImage ? 'application/octet-stream' : (blob.type || 'application/octet-stream');
+
   // Check if native Android Bridge is available
   if (typeof window !== 'undefined' && window.AndroidBridge && typeof window.AndroidBridge.shareFile === 'function') {
     try {
@@ -151,7 +166,7 @@ export async function shareBlob(blob: Blob, filename: string, caption = SHARE_CA
       const success = window.AndroidBridge.shareFile(
         base64,
         filename,
-        blob.type || 'application/octet-stream',
+        shareMimeType,
         caption
       );
       if (success) return;
@@ -162,7 +177,7 @@ export async function shareBlob(blob: Blob, filename: string, caption = SHARE_CA
 
   // Web Share API fallback
   if (typeof navigator !== 'undefined' && navigator.canShare) {
-    const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+    const file = new File([blob], filename, { type: shareMimeType });
     if (navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({
@@ -183,8 +198,7 @@ export async function shareBlob(blob: Blob, filename: string, caption = SHARE_CA
 
 /**
  * Shares multiple files directly (as image/document files, NEVER as a zip archive).
- * On Android, triggers AndroidBridge.shareFiles (ACTION_SEND_MULTIPLE).
- * On Web/Desktop, uses navigator.share with multiple files.
+ * Shares images as raw documents ('application/octet-stream') to preserve uncompressed quality.
  */
 export async function shareMultipleBlobs(
   items: Array<{ blob: Blob; name: string }>,
@@ -208,7 +222,8 @@ export async function shareMultipleBlobs(
       for (const item of items) {
         base64List.push(await blobToBase64(item.blob));
         filenames.push(item.name);
-        mimeTypes.push(item.blob.type || 'image/png');
+        const isImg = (item.blob.type && item.blob.type.startsWith('image/')) || /\.(jpe?g|png|webp|bmp|tiff|avif|heic)$/i.test(item.name);
+        mimeTypes.push(isImg ? 'application/octet-stream' : (item.blob.type || 'application/octet-stream'));
       }
       const success = window.AndroidBridge.shareFiles(base64List, filenames, mimeTypes, caption);
       if (success) return;
@@ -219,7 +234,10 @@ export async function shareMultipleBlobs(
 
   // 2. Web Share API with multiple files
   if (typeof navigator !== 'undefined' && navigator.canShare) {
-    const files = items.map((it) => new File([it.blob], it.name, { type: it.blob.type || 'image/png' }));
+    const files = items.map((it) => {
+      const isImg = (it.blob.type && it.blob.type.startsWith('image/')) || /\.(jpe?g|png|webp|bmp|tiff|avif|heic)$/i.test(it.name);
+      return new File([it.blob], it.name, { type: isImg ? 'application/octet-stream' : (it.blob.type || 'application/octet-stream') });
+    });
     if (navigator.canShare({ files })) {
       try {
         await navigator.share({

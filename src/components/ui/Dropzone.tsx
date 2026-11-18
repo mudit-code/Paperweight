@@ -79,6 +79,7 @@ export const Dropzone: React.FC<DropzoneProps> = ({
               type: file.type || 'application/octet-stream',
               lastModified: file.lastModified,
               data: buffer,
+              blob: file,
               previewUrl,
             };
           })
@@ -96,8 +97,17 @@ export const Dropzone: React.FC<DropzoneProps> = ({
         if (pdfFiles.length > 0) {
           pdfFiles.forEach(async (pdfFile) => {
             try {
+              let fileBytes: Uint8Array;
+              const isDetached = (pdfFile.data as { detached?: boolean }).detached || pdfFile.data.byteLength === 0;
+              if (isDetached && pdfFile.blob) {
+                const fresh = await pdfFile.blob.arrayBuffer();
+                pdfFile.data = fresh;
+                fileBytes = new Uint8Array(fresh.slice(0));
+              } else {
+                fileBytes = new Uint8Array(pdfFile.data.slice(0));
+              }
               const loadingTask = pdfjsLib.getDocument({
-                data: new Uint8Array(pdfFile.data.slice(0)),
+                data: fileBytes,
               });
               const pdf = await loadingTask.promise;
               const page = await pdf.getPage(1);

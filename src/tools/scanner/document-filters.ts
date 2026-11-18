@@ -401,12 +401,12 @@ export async function formatPageSize(imageSrc: string, format: PageFormatType): 
   // 2. If the document has margins on the A4/A5 sheet, draw realistic paper separation
   const hasMargins = offsetX > 2 || offsetY > 2;
   if (hasMargins) {
-    // Subtle, soft document paper drop shadow
+    // Soft, realistic document paper drop shadow
     ctx.save();
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.16)';
-    ctx.shadowBlur = Math.max(6, Math.round(Math.min(canvasW, canvasH) * 0.012));
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.22)';
+    ctx.shadowBlur = Math.max(10, Math.round(Math.min(canvasW, canvasH) * 0.018));
     ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = Math.max(2, Math.round(Math.min(canvasW, canvasH) * 0.005));
+    ctx.shadowOffsetY = Math.max(3, Math.round(Math.min(canvasW, canvasH) * 0.007));
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(offsetX, offsetY, drawW, drawH);
     ctx.restore();
@@ -415,10 +415,10 @@ export async function formatPageSize(imageSrc: string, format: PageFormatType): 
   // 3. Draw scanned page centered without stretching
   ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
 
-  // 4. Subtle, clean hairline border around the scanned document boundary so it clearly separates from the sheet
+  // 4. Clean hairline border around the scanned document boundary so it clearly separates from the sheet
   if (hasMargins) {
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
-    ctx.lineWidth = Math.max(1, Math.round(Math.min(canvasW, canvasH) * 0.0015));
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.20)';
+    ctx.lineWidth = Math.max(2, Math.round(Math.min(canvasW, canvasH) * 0.002));
     ctx.strokeRect(offsetX, offsetY, drawW, drawH);
   }
 

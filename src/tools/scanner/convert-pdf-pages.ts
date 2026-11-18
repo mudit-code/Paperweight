@@ -26,7 +26,7 @@ export async function convertFilesToImagePages(files: File[]): Promise<File[]> {
     try {
       const buffer = await file.arrayBuffer();
       const loadingTask = pdfjsLib.getDocument({
-        data: new Uint8Array(buffer),
+        data: new Uint8Array(buffer.slice(0)),
       });
       const pdf = await loadingTask.promise;
       const baseName = file.name.replace(/\.[^/.]+$/, '');

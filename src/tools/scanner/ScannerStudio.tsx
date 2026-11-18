@@ -12,6 +12,7 @@ import {
   Plus,
   Sparkles,
   Crop,
+  Loader2,
 } from 'lucide-react';
 import type { ProcessedFile } from '../../core/types';
 import type { BatchResult } from '../../core/processors/types';
@@ -52,6 +53,7 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
   const [retakeIndex, setRetakeIndex] = useState<number | null>(null);
 
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const isMobile = isMobileApp();
   const [isSavingResult, setIsSavingResult] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -126,6 +128,7 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
           type: file.type || 'image/jpeg',
           lastModified: file.lastModified,
           data: buffer,
+          blob: file,
           previewUrl,
         };
       })
@@ -141,45 +144,51 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
   const handleImportFiles = async (rawFiles: FileList | File[]) => {
     const list = Array.from(rawFiles);
     if (list.length === 0) return;
+    setIsImporting(true);
 
-    const importedItems: CapturedScanItem[] = list.map((file) => {
-      const url = URL.createObjectURL(file);
-      return {
-        file,
-        rawUrl: url,
-        displayUrl: url,
-        cropCorners: {
-          topLeft: { x: 0.05, y: 0.05 },
-          topRight: { x: 0.95, y: 0.05 },
-          bottomRight: { x: 0.95, y: 0.95 },
-          bottomLeft: { x: 0.05, y: 0.95 },
-        },
-      };
-    });
-
-    setCapturedRawFiles((prev) => [...prev, ...list]);
-    setCapturedScanItems((prev) => [...prev, ...importedItems]);
-
-    const newItems: ProcessedFile[] = await Promise.all(
-      list.map(async (file, idx) => {
-        const buffer = await file.arrayBuffer();
-        let previewUrl: string | undefined = undefined;
-        if (file.type.startsWith('image/')) {
-          previewUrl = URL.createObjectURL(new Blob([buffer], { type: file.type }));
-        }
+    try {
+      const importedItems: CapturedScanItem[] = list.map((file) => {
+        const url = URL.createObjectURL(file);
         return {
-          id: `file_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 7)}`,
-          name: file.name,
-          size: file.size,
-          type: file.type || 'application/octet-stream',
-          lastModified: file.lastModified,
-          data: buffer,
-          previewUrl,
+          file,
+          rawUrl: url,
+          displayUrl: url,
+          cropCorners: {
+            topLeft: { x: 0.05, y: 0.05 },
+            topRight: { x: 0.95, y: 0.05 },
+            bottomRight: { x: 0.95, y: 0.95 },
+            bottomLeft: { x: 0.05, y: 0.95 },
+          },
         };
-      })
-    );
+      });
 
-    onFilesChange([...files, ...newItems]);
+      setCapturedRawFiles((prev) => [...prev, ...list]);
+      setCapturedScanItems((prev) => [...prev, ...importedItems]);
+
+      const newItems: ProcessedFile[] = await Promise.all(
+        list.map(async (file, idx) => {
+          const buffer = await file.arrayBuffer();
+          let previewUrl: string | undefined = undefined;
+          if (file.type.startsWith('image/')) {
+            previewUrl = URL.createObjectURL(new Blob([buffer], { type: file.type }));
+          }
+          return {
+            id: `file_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 7)}`,
+            name: file.name,
+            size: file.size,
+            type: file.type || 'application/octet-stream',
+            lastModified: file.lastModified,
+            data: buffer,
+            blob: file,
+            previewUrl,
+          };
+        })
+      );
+
+      onFilesChange([...files, ...newItems]);
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   // Page reordering and rotation actions
@@ -280,6 +289,7 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
               type: replacement.type || 'image/jpeg',
               lastModified: replacement.lastModified,
               data: buffer,
+              blob: replacement,
               previewUrl: url,
             };
             const nextFiles = [...files];
@@ -530,54 +540,62 @@ export const ScannerStudio: React.FC<ScannerStudioProps> = ({
                 : 'border-surface-border bg-surface-panel'
             }`}
           >
-            <div className="max-w-md flex flex-col items-center gap-3">
-              <p className="text-sm text-text-muted">
-                {isMobile
-                  ? 'Scan pages with your camera or choose files from your device.'
-                  : 'Choose document images or PDF files, or drop them onto the desk.'}
-              </p>
+            {isImporting ? (
+              <div className="flex flex-col items-center justify-center space-y-2.5 animate-in fade-in duration-150">
+                <Loader2 className="w-8 h-8 text-accent animate-spin" />
+                <p className="text-sm font-semibold text-text-main">Reading and preparing pages...</p>
+                <p className="text-xs text-text-muted">Loading documents on this device</p>
+              </div>
+            ) : (
+              <div className="max-w-md flex flex-col items-center gap-3">
+                <p className="text-sm text-text-muted">
+                  {isMobile
+                    ? 'Scan pages with your camera or choose files from your device.'
+                    : 'Choose document images or PDF files, or drop them onto the desk.'}
+                </p>
 
-              {/* Action buttons */}
-              <div className="flex items-center gap-2.5 flex-wrap justify-center pt-1">
-                {isMobile ? (
-                  <>
+                {/* Action buttons */}
+                <div className="flex items-center gap-2.5 flex-wrap justify-center pt-1">
+                  {isMobile ? (
+                    <>
+                      <Button
+                        variant="primary"
+                        size="md"
+                        leftIcon={<Camera className="w-4 h-4" />}
+                        onClick={() => setIsCameraOpen(true)}
+                      >
+                        Scan with Camera
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        leftIcon={<FolderPlus className="w-4 h-4" />}
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        Choose files
+                      </Button>
+                    </>
+                  ) : (
                     <Button
                       variant="primary"
-                      size="md"
-                      leftIcon={<Camera className="w-4 h-4" />}
-                      onClick={() => setIsCameraOpen(true)}
-                    >
-                      Scan with Camera
-                    </Button>
-                    <Button
-                      variant="secondary"
                       size="md"
                       leftIcon={<FolderPlus className="w-4 h-4" />}
                       onClick={() => fileInputRef.current?.click()}
                     >
-                      Choose files
+                      Add Files
                     </Button>
-                  </>
-                ) : (
+                  )}
                   <Button
-                    variant="primary"
+                    variant="secondary"
                     size="md"
-                    leftIcon={<FolderPlus className="w-4 h-4" />}
-                    onClick={() => fileInputRef.current?.click()}
+                    leftIcon={<FileText className="w-4 h-4" />}
+                    onClick={() => pdfInputRef.current?.click()}
                   >
-                    Add Files
+                    Choose PDF
                   </Button>
-                )}
-                <Button
-                  variant="secondary"
-                  size="md"
-                  leftIcon={<FileText className="w-4 h-4" />}
-                  onClick={() => pdfInputRef.current?.click()}
-                >
-                  Choose PDF
-                </Button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         ) : (
           /* STATE 1: MULTI-PAGE DOCUMENT GRID */

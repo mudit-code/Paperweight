@@ -2,7 +2,6 @@ import React, { useRef, useState, useCallback, useEffect } from 'react';
 import {
   FolderPlus,
   Trash2,
-  Archive,
   Save,
   Share2,
   Eye,
@@ -38,6 +37,7 @@ export interface CompressorShowcaseProps {
   progress?: ProgressReport | null;
   onCancel?: () => void;
   result?: BatchResult | null;
+  onDismissResult?: () => void;
   sizeEstimate?: SizeEstimate | null;
   onExecuteBatch?: () => void;
   acceptedMimes?: string[];
@@ -57,6 +57,7 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
   progress,
   onCancel,
   result,
+  onDismissResult,
   sizeEstimate: _sizeEstimate,
   onExecuteBatch,
   acceptedMimes = [],
@@ -64,7 +65,7 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
   activeMode = 'pdf',
   className = '',
   onViewImages,
-  onViewFile: _onViewFile,
+  onViewFile,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isMobile = isMobileApp() || (typeof window !== 'undefined' && window.innerWidth < 768);
@@ -148,11 +149,21 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
     });
   }, [files]);
 
+  // Reset local compression results when global result is dismissed
+  useEffect(() => {
+    if (!result && singleResults.size > 0) {
+      setSingleResults(new Map());
+      setHasCompressedBatch(false);
+    }
+  }, [result, singleResults.size]);
+
   // Current compression level
   const currentLevel = typeof options.compressionLevel === 'number' ? options.compressionLevel : 40;
 
   const handleLevelChange = (lvl: number) => {
     setHasCompressedBatch(false);
+    setSingleResults(new Map());
+    if (onDismissResult) onDismissResult();
     if (onOptionsChange) {
       onOptionsChange({
         ...options,
@@ -164,6 +175,8 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
 
   const handlePresetSelect = (lvl: number, preset: string) => {
     setHasCompressedBatch(false);
+    setSingleResults(new Map());
+    if (onDismissResult) onDismissResult();
     if (onOptionsChange) {
       onOptionsChange({
         ...options,
@@ -232,6 +245,7 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
               type: file.type || 'application/octet-stream',
               lastModified: file.lastModified,
               data: buffer,
+              blob: file,
               previewUrl,
             };
           })
@@ -412,18 +426,36 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
     const activeItem = batchItem || singleItem;
 
     if (activeItem) {
-      setViewingPdf({
-        blob: activeItem.blob,
-        name: activeItem.name,
-        isCompressed: true,
-      });
+      if (onViewFile) {
+        activeItem.blob.arrayBuffer().then((buf) => {
+          onViewFile({
+            id: file.id,
+            name: activeItem.name,
+            data: buf,
+            blob: activeItem.blob,
+            size: activeItem.blob.size,
+            type: 'application/pdf',
+            lastModified: Date.now(),
+          });
+        });
+      } else {
+        setViewingPdf({
+          blob: activeItem.blob,
+          name: activeItem.name,
+          isCompressed: true,
+        });
+      }
     } else {
-      const blob = new Blob([file.data], { type: 'application/pdf' });
-      setViewingPdf({
-        blob,
-        name: file.name,
-        isCompressed: false,
-      });
+      if (onViewFile) {
+        onViewFile(file);
+      } else {
+        const blob = new Blob([file.data], { type: 'application/pdf' });
+        setViewingPdf({
+          blob,
+          name: file.name,
+          isCompressed: false,
+        });
+      }
     }
   };
 
@@ -440,7 +472,6 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
     const singleItem = singleResults.get(f.id);
     const activeItem = batchItem || singleItem;
 
-    const preview = previewMap.get(f.id);
     let blob: Blob;
     try {
       blob = activeItem?.blob || new Blob([f.data], { type: f.type || 'image/jpeg' });
@@ -451,7 +482,7 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
     return {
       id: f.id,
       name: activeItem?.name || f.name,
-      url: activeItem?.blob ? URL.createObjectURL(activeItem.blob) : preview || (typeof window !== 'undefined' ? URL.createObjectURL(blob) : ''),
+      url: activeItem?.blob ? URL.createObjectURL(activeItem.blob) : (f.previewUrl || (typeof window !== 'undefined' ? URL.createObjectURL(blob) : '')),
       blob,
       size: activeItem?.compressedSize || f.size,
       type: f.type,
@@ -621,27 +652,32 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
       >
         {/* Showcase Files Workspace */}
         {isImporting && files.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-4 my-auto space-y-2">
-            <Loader2 className="w-6 h-6 text-accent animate-spin" />
-            <p className="text-sm font-medium text-text-main">Reading files...</p>
+          <div className="flex-1 flex flex-col items-center justify-center p-6 my-auto space-y-2.5 animate-in fade-in duration-150">
+            <Loader2 className="w-8 h-8 text-accent animate-spin" />
+            <p className="text-sm font-semibold text-text-main">Reading files...</p>
+            <p className="text-xs text-text-muted">Loading and validating on this device</p>
           </div>
         ) : files.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-4 my-auto text-center gap-3 pb-4">
-            <p className="text-sm text-text-muted">
-              {isMobile
-                ? 'Choose files on your device to compress.'
-                : 'Choose files or drop them onto the desk to compress.'}
+          <div className="flex-1 flex flex-col items-center justify-center p-4 my-auto text-center gap-2 pb-4">
+            <h3 className="text-base sm:text-lg font-bold text-text-main">
+              {activeMode === 'pdf' ? 'Drop PDFs here' : activeMode === 'image' ? 'Drop images here' : 'Drop documents here'}
+            </h3>
+            <p className="text-xs sm:text-sm text-text-muted">
+              or choose them from your device.
             </p>
-            <Button
-              type="button"
-              variant="primary"
-              size="md"
-              onClick={openFilePicker}
-              disabled={isProcessing}
-              leftIcon={<FolderPlus className="w-4 h-4" />}
-            >
-              {isMobile ? 'Choose files' : getSelectLabel()}
-            </Button>
+            <div className="pt-2">
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                onClick={openFilePicker}
+                disabled={isProcessing}
+                leftIcon={<FolderPlus className="w-4 h-4" />}
+                className="font-semibold px-6 shadow-xs"
+              >
+                {getSelectLabel()}
+              </Button>
+            </div>
           </div>
         ) : (
           <div className={`w-full flex-1 min-h-0 ${isMobile ? 'overflow-y-auto px-0.5 pt-1 pb-2' : 'max-h-[280px] sm:max-h-[340px] lg:max-h-none overflow-y-auto px-0.5 pt-1 pb-3'} no-scrollbar`}>
@@ -832,87 +868,108 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
               })}
 
               {isImporting && (
-                <div className="h-full min-h-[140px] rounded-sheet bg-surface-subtle border border-surface-border p-4 flex flex-col items-center justify-center gap-2">
-                  <Loader2 className="w-5 h-5 text-accent animate-spin" />
-                  <span className="text-xs font-medium text-text-muted">Importing...</span>
+                <div className="paper-sheet p-3 flex flex-col items-center justify-center h-32 sm:h-36 border-dashed border-accent/60 bg-surface-subtle/60 animate-pulse">
+                  <Loader2 className="w-5 h-5 text-accent animate-spin mb-1.5" />
+                  <span className="text-xs font-semibold text-text-main">Reading file...</span>
+                  <span className="text-[11px] text-text-muted">Loading data</span>
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* Pinned Toolbar inside the drop box (shown once files are loaded) */}
-        {files.length > 0 && (
-          <div className="relative z-20 shrink-0 pt-2 sm:pt-3 mt-auto border-t border-surface-border bg-surface-panel flex items-center justify-between flex-wrap gap-2 -mx-3 px-3 pb-2 rounded-b-sheet">
-            {/* Left: Choose More Files & Summary */}
-            <div className="flex items-center gap-2 sm:gap-3">
+        {/* Pinned Bottom Bar: ALWAYS visible on desktop to prevent any UI jump */}
+        <div className="relative z-20 shrink-0 pt-2 sm:pt-2.5 mt-auto border-t border-surface-border bg-surface-panel flex items-center justify-between -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-2.5 rounded-b-sheet">
+          {files.length === 0 ? (
+            <>
+              <span className="text-xs font-mono text-text-muted">0 files</span>
               <button
                 type="button"
-                disabled={isProcessing || isImporting}
-                onClick={openFilePicker}
-                className="h-9 px-3 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer disabled:opacity-50"
+                disabled
+                className="h-8 px-2.5 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-mono text-text-disabled cursor-not-allowed opacity-40"
               >
-                {isImporting ? (
-                  <Loader2 className="w-4 h-4 animate-spin text-accent shrink-0" />
-                ) : (
-                  <FolderPlus className="w-4 h-4 shrink-0" />
-                )}
-                <span>{isImporting ? 'Importing...' : isMobile ? 'Choose files' : getSelectLabel()}</span>
+                <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                <span>Clear</span>
               </button>
+            </>
+          ) : (
+            <>
+              {/* Left: Choose More Files & Summary */}
+              <div className="flex items-center gap-2 sm:gap-3">
+                <button
+                  type="button"
+                  disabled={isProcessing || isImporting}
+                  onClick={openFilePicker}
+                  className="h-8 px-3 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {isImporting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-accent shrink-0" />
+                  ) : (
+                    <FolderPlus className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span>Add files</span>
+                </button>
 
-              <span className="text-xs font-mono text-text-muted hidden sm:inline">
-                {files.length} {files.length === 1 ? 'file' : 'files'} (
-                {formatBytes(totalOriginalBytes)}
-                {result && result.size && (
-                  <span className="text-status-success font-semibold ml-1">
-                    → {formatBytes(result.size)}
-                    {result.savingsPercent !== undefined && result.savingsPercent > 0 && (
-                      <span className="ml-1">(-{result.savingsPercent}%)</span>
+                {isProcessing ? (
+                  <div className="flex items-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin text-accent shrink-0" />
+                    <span className="text-xs font-mono text-accent font-semibold truncate max-w-[200px] sm:max-w-md">
+                      {progress?.percentage ? `${Math.round(progress.percentage)}% ` : ''}
+                      {progress?.message || progress?.phase || 'Compressing...'}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-xs font-mono text-text-muted">
+                    {files.length} {files.length === 1 ? 'file' : 'files'} · {formatBytes(totalOriginalBytes)}
+                    {result && result.size && (
+                      <span className="text-status-success font-semibold ml-1">
+                        → {formatBytes(result.size)}
+                      </span>
                     )}
                   </span>
                 )}
-                )
-              </span>
-            </div>
+              </div>
 
-            {/* Right: Trash Clear and Save Button - Aligned with exact same height & border thickness */}
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={handleRequestClearAll}
-                disabled={files.length === 0 || isProcessing}
-                className="h-9 px-3 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-status-error hover:bg-status-error-bg border border-surface-border transition-colors disabled:opacity-50 cursor-pointer"
-                title="Remove all files"
-                aria-label="Remove all files"
-              >
-                <Trash2 className="w-4 h-4 shrink-0" />
-                <span>Clear</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={files.length === 0 || isProcessing || isSavingAll || !result}
-                onClick={handleDownloadZip}
-                className={`h-9 px-3 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-semibold border transition-colors cursor-pointer disabled:opacity-50 disabled:pointer-events-none ${
-                  result
-                    ? 'bg-accent text-accent-contrast border-accent hover:bg-accent-hover font-semibold shadow-2xs'
-                    : 'bg-surface-subtle text-text-muted border-surface-border hover:bg-surface-hover'
-                }`}
-                title={result ? 'Save compressed file' : 'Compress file to save'}
-                aria-label="Save compressed file"
-              >
-                {isSavingAll ? (
-                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                ) : files.length > 1 && !isMobile ? (
-                  <Archive className="w-4 h-4 shrink-0" />
+              {/* Right: Trash Clear / Cancel and Mobile-only Save */}
+              <div className="flex items-center gap-2 shrink-0">
+                {isProcessing && onCancel ? (
+                  <button
+                    type="button"
+                    onClick={onCancel}
+                    className="h-8 px-2.5 rounded-control inline-flex items-center justify-center gap-1 text-xs font-semibold text-text-muted hover:text-status-error hover:bg-status-error-bg border border-surface-border transition-colors cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5 shrink-0" />
+                    <span>Cancel</span>
+                  </button>
                 ) : (
-                  <Save className="w-4 h-4 shrink-0" />
+                  <button
+                    type="button"
+                    onClick={handleRequestClearAll}
+                    disabled={isProcessing}
+                    className="h-8 px-2.5 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-status-error hover:bg-status-error-bg border border-transparent hover:border-status-error-border transition-colors cursor-pointer"
+                    title="Remove all files"
+                    aria-label="Remove all files"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 shrink-0 text-status-error" />
+                    <span>Clear</span>
+                  </button>
                 )}
-                <span>{files.length > 1 ? (isMobile ? 'Save All' : 'Save ZIP') : 'Save File'}</span>
-              </button>
-            </div>
-          </div>
-        )}
+
+                {isMobile && result && (
+                  <button
+                    type="button"
+                    disabled={isSavingAll}
+                    onClick={handleDownloadZip}
+                    className="h-8 px-3 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-semibold bg-accent text-accent-contrast border border-accent shadow-xs"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Save</span>
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Mobile Integrated Controls Area (Enlarged dropbox directly above; fixed height so elements never jump or float) */}
@@ -933,7 +990,7 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
                   type="range"
                   min={5}
                   max={95}
-                  step={5}
+                  step={1}
                   value={currentLevel}
                   onChange={(e) => handleLevelChange(Number(e.target.value))}
                   disabled={isProcessing}
@@ -1061,15 +1118,16 @@ export const CompressorShowcase: React.FC<CompressorShowcaseProps> = ({
       )}
 
 
-      {/* In-App PDF Viewer Modal */}
-      <PdfViewerModal
-        isOpen={Boolean(viewingPdf)}
-        onClose={() => setViewingPdf(null)}
-        pdfBlob={viewingPdf?.blob ?? null}
-        fileName={viewingPdf?.name ?? ''}
-        isCompressed={viewingPdf?.isCompressed ?? false}
-        onCompress={() => setViewingPdf(null)}
-      />
+      {/* In-App PDF Viewer Modal (Fallback if global onViewFile is not provided) */}
+      {!onViewFile && (
+        <PdfViewerModal
+          isOpen={Boolean(viewingPdf)}
+          onClose={() => setViewingPdf(null)}
+          pdfBlob={viewingPdf?.blob ?? null}
+          fileName={viewingPdf?.name ?? ''}
+          isCompressed={viewingPdf?.isCompressed ?? false}
+        />
+      )}
 
       {/* In-App Image Gallery Modal (Fallback if global onViewImages not provided) */}
       {isGalleryOpen && galleryItems.length > 0 && (

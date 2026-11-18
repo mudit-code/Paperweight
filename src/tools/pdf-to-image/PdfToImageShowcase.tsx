@@ -46,7 +46,7 @@ export const PdfToImageShowcase: React.FC<PdfToImageShowcaseProps> = ({
   result,
   onDismissResult,
   onExecute,
-  onViewFile,
+  onViewFile: _onViewFile,
   onViewImages,
   className = '',
 }) => {
@@ -105,8 +105,18 @@ export const PdfToImageShowcase: React.FC<PdfToImageShowcaseProps> = ({
 
     const loadPdfAndThumbs = async () => {
       try {
+        let fileBytes: Uint8Array;
+        const isDetached = (currentFile.data as { detached?: boolean }).detached || currentFile.data.byteLength === 0;
+        if (isDetached && currentFile.blob) {
+          const fresh = await currentFile.blob.arrayBuffer();
+          currentFile.data = fresh;
+          fileBytes = new Uint8Array(fresh.slice(0));
+        } else {
+          fileBytes = new Uint8Array(currentFile.data.slice(0));
+        }
+
         const loadingTask = pdfjsLib.getDocument({
-          data: new Uint8Array(currentFile.data.slice(0)),
+          data: fileBytes,
         });
         const pdf = await loadingTask.promise;
         if (isCancelled) return;
@@ -190,6 +200,7 @@ export const PdfToImageShowcase: React.FC<PdfToImageShowcaseProps> = ({
         type: pdfFile.type || 'application/pdf',
         lastModified: pdfFile.lastModified,
         data: buffer,
+        blob: pdfFile,
       };
 
       if (onDismissResult) {
@@ -290,32 +301,59 @@ export const PdfToImageShowcase: React.FC<PdfToImageShowcaseProps> = ({
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`w-full rounded-sheet border transition-colors duration-150 flex flex-col items-center justify-center text-center p-6 gap-3 ${
-            isMobile
-              ? 'flex-1 min-h-[180px]'
-              : 'flex-1 min-h-[340px]'
+          className={`w-full rounded-sheet border transition-colors duration-150 flex flex-col justify-between text-center overflow-hidden relative shadow-2xs ${
+            isMobile ? 'flex-1 min-h-[180px] p-3 sm:p-4' : 'flex-1 min-h-[340px] p-4 sm:p-5'
           } ${
             isDragOver
               ? 'border-accent bg-surface-hover shadow-lifted'
               : 'border-surface-border bg-surface-panel'
           }`}
         >
-          <p className="text-sm text-text-muted max-w-sm">
-            {isMobile
-              ? 'Choose a PDF on your device to render as images.'
-              : 'Choose a PDF or drop it onto the desk to render pages as images.'}
-          </p>
-          <Button
-            type="button"
-            variant="primary"
-            size="md"
-            disabled={isProcessing || isImporting}
-            isLoading={isImporting}
-            onClick={() => fileInputRef.current?.click()}
-            leftIcon={!isImporting ? <FolderPlus className="w-4 h-4" /> : undefined}
-          >
-            {isImporting ? 'Reading...' : isMobile ? 'Choose files' : 'Select PDF'}
-          </Button>
+          {/* Centered Content */}
+          <div className="flex-1 flex flex-col items-center justify-center p-4 my-auto">
+            {isImporting ? (
+              <div className="flex flex-col items-center justify-center space-y-2.5 animate-in fade-in duration-150">
+                <Loader2 className="w-8 h-8 text-accent animate-spin" />
+                <p className="text-sm font-semibold text-text-main">Reading PDF document...</p>
+                <p className="text-xs text-text-muted">Loading and validating on this device</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <h3 className="text-base sm:text-lg font-bold text-text-main">
+                  Drop PDF here
+                </h3>
+                <p className="text-xs sm:text-sm text-text-muted">
+                  or choose from your device.
+                </p>
+                <div className="pt-2">
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="md"
+                    disabled={isProcessing}
+                    onClick={() => fileInputRef.current?.click()}
+                    leftIcon={<FolderPlus className="w-4 h-4" />}
+                    className="font-semibold px-6 shadow-xs"
+                  >
+                    Select PDF
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Pinned Bottom Bar: ALWAYS visible to prevent UI jump */}
+          <div className="shrink-0 pt-2.5 border-t border-surface-border flex items-center justify-between gap-2 text-xs -mx-3 sm:-mx-5 -mb-3 sm:-mb-5 px-3 sm:px-5 py-2.5 rounded-b-sheet bg-surface-panel">
+            <span className="font-mono text-text-muted text-xs">0 files</span>
+            <button
+              type="button"
+              disabled
+              className="h-8 px-2.5 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-mono text-text-disabled cursor-not-allowed opacity-40"
+            >
+              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+              <span>Clear</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -324,7 +362,13 @@ export const PdfToImageShowcase: React.FC<PdfToImageShowcaseProps> = ({
         <div className={`w-full rounded-sheet border border-surface-border bg-surface-panel p-3.5 sm:p-5 flex flex-col justify-between overflow-hidden relative shadow-2xs ${isMobile ? 'flex-1 min-h-0' : 'flex-1 min-h-[340px]'}`}>
           {/* Selected Pages Thumbnail Grid */}
           <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-            {selectedPageNumbers.length === 0 ? (
+            {numPdfPages === 0 ? (
+              <div className="flex flex-col items-center justify-center h-48 sm:h-64 space-y-2.5 animate-in fade-in duration-150">
+                <Loader2 className="w-8 h-8 text-accent animate-spin" />
+                <p className="text-sm font-semibold text-text-main">Reading document pages...</p>
+                <p className="text-xs text-text-muted">Rendering page previews on this device</p>
+              </div>
+            ) : selectedPageNumbers.length === 0 ? (
               <div className="p-8 text-center text-sm text-text-muted">
                 No pages match the current selection. Update Page Selection in Options.
               </div>
@@ -350,7 +394,7 @@ export const PdfToImageShowcase: React.FC<PdfToImageShowcaseProps> = ({
                       {/* Thumbnail Preview Area: consistent h-28 sm:h-36 */}
                       <div
                         onClick={() => {
-                          // When conversion has completed, click opens the converted images in ImageGalleryModal
+                          // Only after conversion has completed, click opens the converted full-res images in ImageGalleryModal
                           if (result && result.items && result.items.length > 0) {
                             const galleryItems: GalleryItem[] = result.items.map((it, idx) => ({
                               id: it.id || `conv_img_${idx}`,
@@ -366,23 +410,11 @@ export const PdfToImageShowcase: React.FC<PdfToImageShowcaseProps> = ({
                               return;
                             }
                           }
-                          // Before conversion: preview single page
-                          if (thumbUrl && onViewFile && currentFile) {
-                            onViewFile({
-                              id: `p_${p}`,
-                              name: `${currentFile.name} - Page ${p}`,
-                              size: currentFile.size,
-                              type: 'image/jpeg',
-                              lastModified: Date.now(),
-                              data: new ArrayBuffer(0),
-                              previewUrl: thumbUrl,
-                            });
-                          }
                         }}
                         className={`w-full h-28 sm:h-36 rounded-none bg-surface-subtle border border-surface-border-subtle flex items-center justify-center overflow-hidden relative ${
-                          (thumbUrl && onViewFile) || (result && result.items) ? 'cursor-pointer hover:border-accent hover:ring-1 hover:ring-accent transition-all' : ''
+                          result && result.items ? 'cursor-pointer hover:border-accent hover:ring-1 hover:ring-accent transition-all' : ''
                         } p-1`}
-                        title={result && result.items ? 'Click to view converted image' : (thumbUrl && onViewFile ? 'Click to preview' : undefined)}
+                        title={result && result.items ? 'Click to view converted image' : undefined}
                       >
                         {thumbUrl ? (
                           <img

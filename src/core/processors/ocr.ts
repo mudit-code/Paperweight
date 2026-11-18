@@ -46,8 +46,17 @@ export async function processOcr(
 
     if (isPdf) {
       try {
+        let fileBytes: Uint8Array;
+        const isDetached = (file.data as { detached?: boolean }).detached || file.data.byteLength === 0;
+        if (isDetached && file.blob) {
+          const fresh = await file.blob.arrayBuffer();
+          file.data = fresh;
+          fileBytes = new Uint8Array(fresh.slice(0));
+        } else {
+          fileBytes = new Uint8Array(file.data.slice(0));
+        }
         const loadingTask = pdfjsLib.getDocument({
-          data: new Uint8Array(file.data),
+          data: fileBytes,
         });
         const pdfDoc = await loadingTask.promise;
         for (let p = 1; p <= pdfDoc.numPages; p++) {

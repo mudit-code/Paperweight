@@ -44,7 +44,7 @@ export const GenericConverterShowcase: React.FC<GenericConverterShowcaseProps> =
   result,
   onDismissResult,
   onExecute,
-  onViewFile,
+  onViewFile: _onViewFile,
   onViewImages,
   className = '',
 }) => {
@@ -140,6 +140,7 @@ export const GenericConverterShowcase: React.FC<GenericConverterShowcaseProps> =
           type: f.type,
           lastModified: f.lastModified,
           data: buffer,
+          blob: f,
           previewUrl,
         });
       }
@@ -241,40 +242,63 @@ export const GenericConverterShowcase: React.FC<GenericConverterShowcaseProps> =
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`w-full rounded-sheet border transition-colors duration-150 flex flex-col items-center justify-center text-center p-6 gap-3 ${
-            isMobile
-              ? 'flex-1 min-h-[180px]'
-              : 'flex-1 min-h-[340px]'
+          className={`w-full rounded-sheet border transition-colors duration-150 flex flex-col justify-between text-center overflow-hidden relative shadow-2xs ${
+            isMobile ? 'flex-1 min-h-[180px] p-3 sm:p-4' : 'flex-1 min-h-[340px] p-4 sm:p-5'
           } ${
             isDragOver
               ? 'border-accent bg-surface-hover shadow-lifted'
               : 'border-surface-border bg-surface-panel'
           }`}
         >
-          <p className="text-sm text-text-muted max-w-sm">
-            {isMobile
-              ? mode === 'img-to-pdf'
-                ? 'Choose photos on your device to combine into a PDF.'
-                : mode === 'img-to-img'
-                ? 'Choose images on your device to convert format.'
-                : 'Choose a document on your device to convert to PDF.'
-              : mode === 'img-to-pdf'
-              ? 'Choose photos or drop them here to combine into a PDF.'
-              : mode === 'img-to-img'
-              ? 'Choose images or drop them here to convert format.'
-              : 'Choose a document or drop it here to convert to PDF.'}
-          </p>
-          <Button
-            type="button"
-            variant="primary"
-            size="md"
-            disabled={isProcessing || isImporting}
-            isLoading={isImporting}
-            onClick={() => fileInputRef.current?.click()}
-            leftIcon={!isImporting ? <FolderPlus className="w-4 h-4" /> : undefined}
-          >
-            {isImporting ? 'Reading...' : isMobile ? 'Choose files' : getSelectLabel()}
-          </Button>
+          {/* Centered Content */}
+          <div className="flex-1 flex flex-col items-center justify-center p-4 my-auto">
+            {isImporting ? (
+              <div className="flex flex-col items-center justify-center space-y-2.5 animate-in fade-in duration-150">
+                <Loader2 className="w-8 h-8 text-accent animate-spin" />
+                <p className="text-sm font-semibold text-text-main">Reading files...</p>
+                <p className="text-xs text-text-muted">Loading and validating on this device</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <h3 className="text-base sm:text-lg font-bold text-text-main">
+                  {mode === 'img-to-pdf'
+                    ? 'Drop photos here'
+                    : mode === 'img-to-img'
+                    ? 'Drop images here'
+                    : 'Drop documents here'}
+                </h3>
+                <p className="text-xs sm:text-sm text-text-muted">
+                  or choose them from your device.
+                </p>
+                <div className="pt-2">
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="md"
+                    disabled={isProcessing}
+                    onClick={() => fileInputRef.current?.click()}
+                    leftIcon={<FolderPlus className="w-4 h-4" />}
+                    className="font-semibold px-6 shadow-xs"
+                  >
+                    {getSelectLabel()}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Pinned Bottom Bar: ALWAYS visible to prevent UI jump */}
+          <div className="shrink-0 pt-2.5 border-t border-surface-border flex items-center justify-between gap-2 text-xs -mx-3 sm:-mx-5 -mb-3 sm:-mb-5 px-3 sm:px-5 py-2.5 rounded-b-sheet bg-surface-panel">
+            <span className="font-mono text-text-muted text-xs">0 files</span>
+            <button
+              type="button"
+              disabled
+              className="h-8 px-2.5 rounded-control inline-flex items-center justify-center gap-1.5 text-xs font-mono text-text-disabled cursor-not-allowed opacity-40"
+            >
+              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+              <span>Clear</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -313,7 +337,7 @@ export const GenericConverterShowcase: React.FC<GenericConverterShowcaseProps> =
                     {/* Preview Area: consistent h-28 sm:h-36 */}
                     <div
                       onClick={() => {
-                        // After conversion, clicking image opens all converted images in ImageGalleryModal
+                        // Only after conversion has completed, click opens the converted images in ImageGalleryModal
                         if (result && result.items && result.items.length > 0) {
                           const galleryItems: GalleryItem[] = result.items.map((it, i) => ({
                             id: it.id || `conv_img_${i}`,
@@ -328,14 +352,11 @@ export const GenericConverterShowcase: React.FC<GenericConverterShowcaseProps> =
                             return;
                           }
                         }
-                        if (onViewFile) {
-                          onViewFile(file);
-                        }
                       }}
                       className={`w-full h-28 sm:h-36 rounded-none bg-surface-subtle border border-surface-border-subtle flex items-center justify-center overflow-hidden relative ${
-                        onViewFile || (result && result.items) ? 'cursor-pointer hover:border-accent hover:ring-1 hover:ring-accent transition-all' : ''
+                        result && result.items ? 'cursor-pointer hover:border-accent hover:ring-1 hover:ring-accent transition-all' : ''
                       } p-1`}
-                      title={result && result.items ? 'Click to view converted image' : (onViewFile ? 'Click to preview' : undefined)}
+                      title={result && result.items ? 'Click to view converted image' : undefined}
                     >
                       {isImage && file.previewUrl ? (
                         <img
@@ -370,6 +391,14 @@ export const GenericConverterShowcase: React.FC<GenericConverterShowcaseProps> =
                   </div>
                 );
               })}
+
+              {isImporting && (
+                <div className="paper-sheet p-3 flex flex-col items-center justify-center h-28 sm:h-32 border-dashed border-accent/60 bg-surface-subtle/60 animate-pulse">
+                  <Loader2 className="w-5 h-5 text-accent animate-spin mb-1.5" />
+                  <span className="text-xs font-semibold text-text-main">Reading file...</span>
+                  <span className="text-[11px] text-text-muted">Loading data</span>
+                </div>
+              )}
             </div>
           </div>
 

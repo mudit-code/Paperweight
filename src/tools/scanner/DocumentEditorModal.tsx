@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowLeft,
-  Share2,
   Crop as CropIcon,
   RotateCw,
   RotateCcw,
@@ -21,8 +20,10 @@ import {
   Undo2,
   Redo2,
   Check,
-  X,
   FolderPlus,
+  Loader2,
+  Plus,
+  Minus,
 } from 'lucide-react';
 import { isMobileApp } from '../../core/processors/download';
 import {
@@ -35,11 +36,30 @@ import {
   rotateImage,
 } from './document-filters';
 import { cropPerspectiveQuad, type QuadCorners } from './perspective-crop';
-import { saveScan, type StoredScanDoc } from './scans-db';
+import {
+  saveScan,
+  getAllScans,
+  generateUniqueScanTitle,
+  type StoredScanDoc,
+} from './scans-db';
 import type { CapturedScanItem } from './CameraViewfinder';
 import { convertFilesToImagePages } from './convert-pdf-pages';
 import { PDFDocument } from 'pdf-lib';
-import { downloadBlob, shareBlob } from '../../core/processors';
+import { downloadBlob } from '../../core/processors';
+
+/**
+ * Extracts a clean document title from a filename (removing extension, page suffixes, and ignoring generic names).
+ */
+export function formatDocTitleFromFilename(fileName?: string): string {
+  if (!fileName) return '';
+  const baseOnly = fileName.split(/[/\\]/).pop() || fileName;
+  let base = baseOnly.replace(/\.[^/.]+$/, '');
+  base = base.replace(/[-_]p(?:age)?\d+$/i, '');
+  if (!base || /^(scan|scan_raw|raw_capture|blob|image|photo)([-_]\d+)?$/i.test(base)) {
+    return '';
+  }
+  return base.trim();
+}
 
 export interface EditablePage {
   id: string;
@@ -107,6 +127,19 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
   // Editable pages state
   const [pages, setPages] = useState<EditablePage[]>([]);
   const [activeIndex, setActiveIndex] = useState<number>(0);
+  const activeIndexRef = useRef(activeIndex);
+  activeIndexRef.current = activeIndex;
+  const pagesLengthRef = useRef(pages.length);
+  pagesLengthRef.current = pages.length;
+  const lastTouchTimeRef = useRef<number>(0);
+
+  // Master safeguard: clamp activeIndex to valid page bounds [0, pages.length - 1] whenever pages changes
+  useEffect(() => {
+    if (pages.length > 0 && activeIndex >= pages.length) {
+      setActiveIndex(Math.max(0, pages.length - 1));
+    }
+  }, [pages.length, activeIndex]);
+
   const [activeTool, setActiveTool] = useState<ActiveToolMode>('none');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
@@ -243,6 +276,13 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
   // Format / Resize state (Requirement 3: Live preview with Confirm/Cancel)
   const [selectedFormat, setSelectedFormat] = useState<PageFormatType>('fit');
   const [resizeBackupPage, setResizeBackupPage] = useState<EditablePage | null>(null);
+  const [applyFilterToAll, setApplyFilterToAll] = useState<boolean>(false);
+  const [applyFormatToAll, setApplyFormatToAll] = useState<boolean>(false);
+
+  useEffect(() => {
+    setApplyFilterToAll(false);
+    setApplyFormatToAll(false);
+  }, [activeTool, activeIndex]);
 
   // 1. FREE 4-CORNER CROPPER STATE (Adobe Scan style free quadrilateral)
   type CropHandleType =
@@ -270,7 +310,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
     bottomLeft: { x: 0.05, y: 0.95 },
   });
   const [draggingHandle, setDraggingHandle] = useState<CropHandleType>(null);
-  const dragStartRef = useRef<{
+  const cropDragStartRef = useRef<{
     clientX: number;
     clientY: number;
     corners: QuadCorners;
@@ -302,12 +342,15 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
   // 3. Cleanup State
   const cleanupCanvasRef = useRef<HTMLCanvasElement>(null);
   const [brushSize, setBrushSize] = useState<number>(24);
+  const [isAdjustingBrushSize, setIsAdjustingBrushSize] = useState<boolean>(false);
+  const brushHideTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [cleanupColor, setCleanupColor] = useState<string>('#FFFFFF');
   const [isEyedropperActive, setIsEyedropperActive] = useState<boolean>(false);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
   const [cleanupHistory, setCleanupHistory] = useState<ImageData[]>([]);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState<boolean>(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
+  const [pageAspectRatios, setPageAspectRatios] = useState<Record<string, number>>({});
 
   // Reorder state (Requirement 1: 2-column full screen layout matching Image 1)
   const [reorderPages, setReorderPages] = useState<EditablePage[]>([]);
@@ -437,75 +480,561 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
     setTouchDragPos(null);
   };
 
-  // Smooth Gallery-style Touch Dragging
-  const [dragOffset, setDragOffset] = useState<number>(0);
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const touchStartXRef = useRef<number | null>(null);
-  const touchStartYRef = useRef<number | null>(null);
-  const touchStartTimeRef = useRef<number>(0);
-  const isHorizontalDragRef = useRef<boolean | null>(null);
   const galleryContainerRef = useRef<HTMLDivElement>(null);
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (activeTool !== 'none' || pages.length <= 1) return;
-    touchStartXRef.current = e.touches[0].clientX;
-    touchStartYRef.current = e.touches[0].clientY;
-    touchStartTimeRef.current = Date.now();
-    isHorizontalDragRef.current = null;
-    setIsDragging(true);
-    setDragOffset(0);
+  // Zoom & Pan state for document preview (matching ImageGalleryModal rules)
+  const [scale, setScale] = useState<number>(1.0);
+  const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const panDragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
+  const panRef = useRef(pan);
+  panRef.current = pan;
+
+  // Carousel slide state at 1.0x
+  const [dragOffset, setDragOffset] = useState<number>(0);
+  const isMouseSwipingRef = useRef<boolean>(false);
+  const mouseStartXRef = useRef<number>(0);
+  const mouseLastXRef = useRef<number>(0);
+  const mouseLastTimeRef = useRef<number>(0);
+  const mouseVelocityXRef = useRef<number>(0);
+
+  const resetTransform = useCallback(() => {
+    setScale(1.0);
+    setPan({ x: 0, y: 0 });
+  }, []);
+
+  const handleResetFit = useCallback(() => {
+    resetTransform();
+  }, [resetTransform]);
+
+  const handleZoomIn = useCallback(() => {
+    setScale((cur) => {
+      const next = Math.min(8.0, Number((cur * 1.25).toFixed(2)));
+      return next;
+    });
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setScale((cur) => {
+      const next = Math.max(1.0, Number((cur / 1.25).toFixed(2)));
+      if (next <= 1.05) {
+        setPan({ x: 0, y: 0 });
+        return 1.0;
+      }
+      return next;
+    });
+  }, []);
+
+  // Reset zoom & pan when switching pages or entering perspective crop / reorder
+  useEffect(() => {
+    resetTransform();
+  }, [activeIndex, resetTransform]);
+
+  useEffect(() => {
+    if (activeTool === 'crop' || activeTool === 'reorder') {
+      resetTransform();
+    }
+  }, [activeTool, resetTransform]);
+
+  // Desktop Wheel zoom with focal point tracking (matching ImageGalleryModal rules)
+  const handleWheel = (e: React.WheelEvent) => {
+    if (activeTool === 'crop' || activeTool === 'reorder') return;
+    e.preventDefault();
+    const el = galleryContainerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    const fx = e.clientX - rect.left - centerX;
+    const fy = e.clientY - rect.top - centerY;
+    const factor = e.deltaY < 0 ? 1.2 : 0.833;
+    const curScale = scale;
+    const nextScale = Math.max(1.0, Math.min(8.0, Number((curScale * factor).toFixed(2))));
+    if (nextScale <= 1.05) {
+      setScale(1.0);
+      setPan({ x: 0, y: 0 });
+    } else {
+      const ratio = nextScale / curScale;
+      const nextPanX = fx - (fx - pan.x) * ratio;
+      const nextPanY = fy - (fy - pan.y) * ratio;
+      setScale(nextScale);
+      setPan({ x: nextPanX, y: nextPanY });
+    }
   };
 
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (touchStartXRef.current === null || touchStartYRef.current === null || activeTool !== 'none' || pages.length <= 1) return;
+  // Drag to pan when zoomed, or slide carousel when at fit scale
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    if (activeTool === 'crop' || activeTool === 'reorder') return;
+    if (activeTool === 'cleanup' && scale <= 1.05) return;
+    // Discard synthetic mouse events fired right after touch gestures
+    if (performance.now() - lastTouchTimeRef.current < 600) return;
 
-    const currentX = e.touches[0].clientX;
-    const currentY = e.touches[0].clientY;
-    const deltaX = currentX - touchStartXRef.current;
-    const deltaY = currentY - touchStartYRef.current;
-
-    if (isHorizontalDragRef.current === null) {
-      if (Math.abs(deltaX) > 6 || Math.abs(deltaY) > 6) {
-        isHorizontalDragRef.current = Math.abs(deltaX) > Math.abs(deltaY);
-      }
+    if (scale > 1.05) {
+      e.preventDefault();
+      setIsDragging(true);
+      panDragStartRef.current = { x: e.clientX, y: e.clientY };
+      panStartRef.current = { ...pan };
+    } else if (pages.length > 1) {
+      e.preventDefault();
+      isMouseSwipingRef.current = true;
+      mouseStartXRef.current = e.clientX;
+      mouseLastXRef.current = e.clientX;
+      mouseLastTimeRef.current = performance.now();
+      mouseVelocityXRef.current = 0;
+      setDragOffset(0);
     }
+  };
 
-    if (isHorizontalDragRef.current === true) {
-      // Rubber-band resistance at edges
-      if ((activeIndex === 0 && deltaX > 0) || (activeIndex === pages.length - 1 && deltaX < 0)) {
-        setDragOffset(deltaX * 0.32);
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (performance.now() - lastTouchTimeRef.current < 600) return;
+
+    if (isDragging && scale > 1.05) {
+      const dx = e.clientX - panDragStartRef.current.x;
+      const dy = e.clientY - panDragStartRef.current.y;
+      const el = galleryContainerRef.current;
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const maxPanX = Math.max(0, (rect.width * scale - rect.width) / 2 + 100);
+        const maxPanY = Math.max(0, (rect.height * scale - rect.height) / 2 + 100);
+        setPan({
+          x: Math.max(-maxPanX, Math.min(maxPanX, panStartRef.current.x + dx)),
+          y: Math.max(-maxPanY, Math.min(maxPanY, panStartRef.current.y + dy)),
+        });
       } else {
-        setDragOffset(deltaX);
+        setPan({
+          x: panStartRef.current.x + dx,
+          y: panStartRef.current.y + dy,
+        });
       }
+    } else if (isMouseSwipingRef.current && scale <= 1.05) {
+      const now = performance.now();
+      const dt = Math.max(1, now - mouseLastTimeRef.current);
+      const instVx = (e.clientX - mouseLastXRef.current) / dt;
+      mouseVelocityXRef.current = mouseVelocityXRef.current * 0.4 + instVx * 0.6;
+      mouseLastXRef.current = e.clientX;
+      mouseLastTimeRef.current = now;
+
+      const dx = e.clientX - mouseStartXRef.current;
+      const curIdx = activeIndexRef.current;
+      const len = pagesLengthRef.current;
+      const isAtStartEdge = curIdx <= 0 && dx > 0;
+      const isAtEndEdge = curIdx >= len - 1 && dx < 0;
+      const offset = isAtStartEdge || isAtEndEdge ? dx * 0.25 : dx;
+      setDragOffset(offset);
     }
   };
 
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartXRef.current === null) return;
+  const handleMouseUp = () => {
+    if (performance.now() - lastTouchTimeRef.current < 600) return;
 
-    const currentX = e.changedTouches[0].clientX;
-    const deltaX = currentX - touchStartXRef.current;
-    const deltaTime = Math.max(1, Date.now() - touchStartTimeRef.current);
-    const velocity = deltaX / deltaTime; // px/ms
-    const containerWidth = galleryContainerRef.current?.clientWidth || window.innerWidth;
-    const threshold = containerWidth * 0.5; // 50% threshold requested by user
-    const isFlick = Math.abs(velocity) > 0.45 && Math.abs(deltaX) > 35;
+    if (isDragging) {
+      setIsDragging(false);
+    }
+    if (isMouseSwipingRef.current) {
+      isMouseSwipingRef.current = false;
+      const vx = mouseVelocityXRef.current;
+      const containerWidth = galleryContainerRef.current?.clientWidth || window.innerWidth;
+      const isFlickLeft = vx < -0.25;
+      const isFlickRight = vx > 0.25;
+      const isPastMidpointLeft = dragOffset < -containerWidth * 0.22;
+      const isPastMidpointRight = dragOffset > containerWidth * 0.22;
+      const isCounterFlickCancel = (dragOffset < 0 && isFlickRight) || (dragOffset > 0 && isFlickLeft);
 
-    const isHorizontal = isHorizontalDragRef.current;
+      const curIdx = activeIndexRef.current;
+      const len = pagesLengthRef.current;
+      const canGoNext = curIdx < len - 1;
+      const canGoPrev = curIdx > 0;
 
-    touchStartXRef.current = null;
-    touchStartYRef.current = null;
-    isHorizontalDragRef.current = null;
-    setIsDragging(false);
-    setDragOffset(0);
+      if (!isCounterFlickCancel) {
+        if (canGoNext && (isFlickLeft || isPastMidpointLeft)) {
+          setActiveIndex((prev) => Math.min(len - 1, prev + 1));
+        } else if (canGoPrev && (isFlickRight || isPastMidpointRight)) {
+          setActiveIndex((prev) => Math.max(0, prev - 1));
+        }
+      }
+      setDragOffset(0);
+    }
+  };
 
-    if (isHorizontal) {
-      if ((deltaX < -threshold || (isFlick && deltaX < 0)) && activeIndex < pages.length - 1) {
-        setActiveIndex((prev) => prev + 1);
-      } else if ((deltaX > threshold || (isFlick && deltaX > 0)) && activeIndex > 0) {
-        setActiveIndex((prev) => prev - 1);
+  // Double click toggles between fit and 2.5x focal zoom
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    if (activeTool === 'crop' || activeTool === 'reorder') return;
+
+    if (scale > 1.05) {
+      resetTransform();
+    } else {
+      const el = galleryContainerRef.current;
+      if (!el) {
+        setScale(2.5);
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      const fx = e.clientX - rect.left - centerX;
+      const fy = e.clientY - rect.top - centerY;
+      const targetScale = 2.5;
+      const maxPanX = Math.max(0, (rect.width * targetScale - rect.width) / 2);
+      const maxPanY = Math.max(0, (rect.height * targetScale - rect.height) / 2);
+      const targetPanX = Math.max(-maxPanX, Math.min(maxPanX, -fx * (targetScale - 1)));
+      const targetPanY = Math.max(-maxPanY, Math.min(maxPanY, -fy * (targetScale - 1)));
+      setScale(targetScale);
+      setPan({ x: targetPanX, y: targetPanY });
+    }
+  };
+
+  // Native non-passive Wheel & Touch gestures (matching ImageGalleryModal rules)
+  // Handles desktop scroll wheel zoom, laptop touchpad pinch-to-zoom (ctrl+wheel), and mobile multi-touch pinch
+  useEffect(() => {
+    const el = galleryContainerRef.current;
+    if (!el) return;
+
+    // Desktop mouse wheel & laptop touchpad pinch gesture
+    const onWheel = (e: WheelEvent) => {
+      if (activeTool === 'crop' || activeTool === 'reorder') return;
+      e.preventDefault();
+
+      const rect = el.getBoundingClientRect();
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      const fx = e.clientX - rect.left - centerX;
+      const fy = e.clientY - rect.top - centerY;
+
+      let factor = 1;
+      if (e.ctrlKey) {
+        // Laptop touchpad pinch gesture in Chromium/Electron
+        factor = Math.exp(-e.deltaY * 0.01);
+      } else {
+        // Normal mouse scroll wheel
+        factor = e.deltaY < 0 ? 1.2 : 0.833;
+      }
+
+      const curScale = scaleRef.current;
+      const curPan = panRef.current;
+      const nextScale = Math.max(1.0, Math.min(8.0, Number((curScale * factor).toFixed(2))));
+
+      if (nextScale <= 1.05) {
+        setScale(1.0);
+        setPan({ x: 0, y: 0 });
+      } else {
+        const ratio = nextScale / curScale;
+        const nextPanX = fx - (fx - curPan.x) * ratio;
+        const nextPanY = fy - (fy - curPan.y) * ratio;
+        setScale(nextScale);
+        setPan({ x: nextPanX, y: nextPanY });
+      }
+    };
+
+    let touchStartDist = 0;
+    let touchStartScale = 1;
+    let touchStartPan = { x: 0, y: 0 };
+    let touchFocalX = 0;
+    let touchFocalY = 0;
+    let isPinching = false;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchLastX = 0;
+    let touchLastTime = 0;
+    let touchVelocityX = 0;
+    let isTouchSwiping = false;
+    let lastTapTime = 0;
+    let lastTapPos = { x: 0, y: 0 };
+
+    const onTouchStart = (e: TouchEvent) => {
+      lastTouchTimeRef.current = performance.now();
+      if (activeTool === 'crop' || activeTool === 'reorder') return;
+
+      if (e.touches.length >= 2) {
+        if (e.cancelable) e.preventDefault();
+        isPinching = true;
+        isTouchSwiping = false;
+        lastTapTime = 0;
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        touchStartDist = Math.max(10, Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY));
+        touchStartScale = scaleRef.current;
+        touchStartPan = { ...panRef.current };
+        const rect = el.getBoundingClientRect();
+        touchFocalX = (t1.clientX + t2.clientX) / 2 - rect.left - rect.width / 2;
+        touchFocalY = (t1.clientY + t2.clientY) / 2 - rect.top - rect.height / 2;
+        return;
+      }
+
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        touchStartX = t.clientX;
+        touchStartY = t.clientY;
+        touchLastX = t.clientX;
+        touchLastTime = performance.now();
+        touchVelocityX = 0;
+
+        const now = performance.now();
+        const distFromLast = Math.hypot(t.clientX - lastTapPos.x, t.clientY - lastTapPos.y);
+
+        if (now - lastTapTime < 350 && distFromLast < 45) {
+          if (e.cancelable) e.preventDefault();
+          lastTapTime = 0;
+          isTouchSwiping = false;
+          isPinching = false;
+
+          // Double tap action: toggle between fit and 2.5x focal zoom
+          if (scaleRef.current > 1.05) {
+            setScale(1.0);
+            setPan({ x: 0, y: 0 });
+          } else {
+            const targetScale = 2.5;
+            const rect = el.getBoundingClientRect();
+            const centerX = rect.width / 2;
+            const centerY = rect.height / 2;
+            const tapX = t.clientX - rect.left - centerX;
+            const tapY = t.clientY - rect.top - centerY;
+            const maxPanX = Math.max(0, (rect.width * targetScale - rect.width) / 2);
+            const maxPanY = Math.max(0, (rect.height * targetScale - rect.height) / 2);
+            const targetPanX = Math.max(-maxPanX, Math.min(maxPanX, -tapX * (targetScale - 1)));
+            const targetPanY = Math.max(-maxPanY, Math.min(maxPanY, -tapY * (targetScale - 1)));
+            setScale(targetScale);
+            setPan({ x: targetPanX, y: targetPanY });
+          }
+          return;
+        }
+
+        lastTapTime = now;
+        lastTapPos = { x: t.clientX, y: t.clientY };
+
+        if (scaleRef.current > 1.05) {
+          isPinching = false;
+          touchStartPan = { ...panRef.current };
+        } else if (pagesLengthRef.current > 1) {
+          isTouchSwiping = true;
+          setDragOffset(0);
+        }
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      lastTouchTimeRef.current = performance.now();
+      if (activeTool === 'crop' || activeTool === 'reorder') return;
+
+      if (e.touches.length >= 2) {
+        if (e.cancelable) e.preventDefault();
+        lastTapTime = 0;
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+
+        if (!isPinching) {
+          isPinching = true;
+          isTouchSwiping = false;
+          touchStartDist = Math.max(10, Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY));
+          touchStartScale = scaleRef.current;
+          touchStartPan = { ...panRef.current };
+          const rect = el.getBoundingClientRect();
+          touchFocalX = (t1.clientX + t2.clientX) / 2 - rect.left - rect.width / 2;
+          touchFocalY = (t1.clientY + t2.clientY) / 2 - rect.top - rect.height / 2;
+          return;
+        }
+
+        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const scaleRatio = dist / (touchStartDist || 1);
+        const nextScale = Math.max(1.0, Math.min(8.0, Number((touchStartScale * scaleRatio).toFixed(2))));
+
+        if (nextScale <= 1.05) {
+          setScale(1.0);
+          setPan({ x: 0, y: 0 });
+        } else {
+          const panRatio = nextScale / touchStartScale;
+          const nextPanX = touchFocalX - (touchFocalX - touchStartPan.x) * panRatio;
+          const nextPanY = touchFocalY - (touchFocalY - touchStartPan.y) * panRatio;
+          setScale(nextScale);
+          setPan({ x: nextPanX, y: nextPanY });
+        }
+        return;
+      }
+
+      if (e.touches.length === 1 && !isPinching) {
+        const t = e.touches[0];
+        const dx = t.clientX - touchStartX;
+        const dy = t.clientY - touchStartY;
+
+        if (Math.hypot(dx, dy) > 10) {
+          lastTapTime = 0;
+        }
+
+        if (scaleRef.current > 1.05) {
+          if (e.cancelable) e.preventDefault();
+          const rect = el.getBoundingClientRect();
+          const maxPanX = Math.max(0, (rect.width * scaleRef.current - rect.width) / 2 + 100);
+          const maxPanY = Math.max(0, (rect.height * scaleRef.current - rect.height) / 2 + 100);
+          setPan({
+            x: Math.max(-maxPanX, Math.min(maxPanX, touchStartPan.x + dx)),
+            y: Math.max(-maxPanY, Math.min(maxPanY, touchStartPan.y + dy)),
+          });
+        } else if (isTouchSwiping && pagesLengthRef.current > 1) {
+          if (e.cancelable) e.preventDefault();
+          const now = performance.now();
+          const dt = Math.max(1, now - touchLastTime);
+          const instVx = (t.clientX - touchLastX) / dt;
+          touchVelocityX = touchVelocityX * 0.4 + instVx * 0.6;
+          touchLastX = t.clientX;
+          touchLastTime = now;
+
+          const curIdx = activeIndexRef.current;
+          const len = pagesLengthRef.current;
+          const isAtStartEdge = curIdx <= 0 && dx > 0;
+          const isAtEndEdge = curIdx >= len - 1 && dx < 0;
+          const offset = isAtStartEdge || isAtEndEdge ? dx * 0.25 : dx;
+          setDragOffset(offset);
+        }
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      lastTouchTimeRef.current = performance.now();
+      if (isPinching) {
+        if (e.touches.length < 2) {
+          isPinching = false;
+          if (e.touches.length === 1) {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            touchLastX = e.touches[0].clientX;
+            touchLastTime = performance.now();
+            touchVelocityX = 0;
+            touchStartPan = { ...panRef.current };
+          }
+        }
+      }
+      if (isTouchSwiping && e.touches.length === 0) {
+        isTouchSwiping = false;
+        const curIdx = activeIndexRef.current;
+        const len = pagesLengthRef.current;
+        const dx = touchLastX - touchStartX;
+        const containerWidth = el.clientWidth || window.innerWidth;
+        const isFlickLeft = touchVelocityX < -0.25;
+        const isFlickRight = touchVelocityX > 0.25;
+        const isPastMidpointLeft = dx < -containerWidth * 0.22;
+        const isPastMidpointRight = dx > containerWidth * 0.22;
+        const isCounterFlickCancel = (dx < 0 && isFlickRight) || (dx > 0 && isFlickLeft);
+
+        const canGoNext = curIdx < len - 1;
+        const canGoPrev = curIdx > 0;
+
+        if (!isCounterFlickCancel) {
+          if (canGoNext && (isFlickLeft || isPastMidpointLeft)) {
+            setActiveIndex((prev) => Math.min(len - 1, prev + 1));
+          } else if (canGoPrev && (isFlickRight || isPastMidpointRight)) {
+            setActiveIndex((prev) => Math.max(0, prev - 1));
+          }
+        }
+        setDragOffset(0);
+      }
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    el.addEventListener('touchstart', onTouchStart, { passive: false });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd, { passive: true });
+    el.addEventListener('touchcancel', onTouchEnd, { passive: true });
+
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, [activeTool]);
+
+  // Keyboard navigation & zoom shortcuts (+, -, 0, Arrow keys)
+  useEffect(() => {
+    if (!isOpen || activeTool === 'reorder') return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        document.activeElement &&
+        (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')
+      ) {
+        return;
+      }
+
+      // Zoom Shortcuts: Ctrl + / -, or + / -, or 0
+      if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        handleZoomIn();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === '-' || e.key === '_')) {
+        e.preventDefault();
+        handleZoomOut();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+        e.preventDefault();
+        handleResetFit();
+        return;
+      }
+      if (!e.ctrlKey && !e.metaKey) {
+        if (e.key === '+' || e.key === '=') {
+          e.preventDefault();
+          handleZoomIn();
+          return;
+        }
+        if (e.key === '-' || e.key === '_') {
+          e.preventDefault();
+          handleZoomOut();
+          return;
+        }
+        if (e.key === '0') {
+          e.preventDefault();
+          handleResetFit();
+          return;
+        }
+      }
+
+      // Left / Right arrow navigation
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setActiveIndex((prev) => Math.max(0, prev - 1));
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setActiveIndex((prev) => Math.min(pagesLengthRef.current - 1, prev + 1));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, activeTool, pages.length, handleZoomIn, handleZoomOut, handleResetFit]);
+
+  // Backup references for consistent Cancel / Discard behavior across tools
+  const filterBackupRef = useRef<DocumentFilterType>('original');
+  const adjustBackupRef = useRef<ImageAdjustments>({ brightness: 0, contrast: 0 });
+
+  const handleCancelFilters = async () => {
+    if (activePage && activePage.filter !== filterBackupRef.current) {
+      await updateActivePage((p) => ({ ...p, filter: filterBackupRef.current }));
+    }
+    setActiveTool('none');
+  };
+
+  const handleCancelAdjust = () => {
+    setAdjustments(adjustBackupRef.current);
+    setActiveTool('none');
+  };
+
+  const handleCancelCrop = () => {
+    handleResetCrop();
+    setActiveTool('none');
+  };
+
+  const handleCancelCleanup = () => {
+    if (cleanupCanvasRef.current && cleanupHistory.length > 0) {
+      const ctx = cleanupCanvasRef.current.getContext('2d');
+      if (ctx) {
+        ctx.putImageData(cleanupHistory[0], 0, 0);
       }
     }
+    setCleanupHistory([]);
+    setActiveTool('none');
   };
 
   // Determine if there are genuine unsaved edits to prompt discard confirmation for
@@ -525,6 +1054,18 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
           return next;
         });
         setResizeBackupPage(null);
+      } else if (activeTool === 'filters') {
+        handleCancelFilters();
+        return;
+      } else if (activeTool === 'adjust') {
+        handleCancelAdjust();
+        return;
+      } else if (activeTool === 'cleanup') {
+        handleCancelCleanup();
+        return;
+      } else if (activeTool === 'crop') {
+        handleCancelCrop();
+        return;
       }
       setActiveTool('none');
       return;
@@ -555,6 +1096,18 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
             return next;
           });
           setResizeBackupPage(null);
+        } else if (activeTool === 'filters') {
+          handleCancelFilters();
+          return;
+        } else if (activeTool === 'adjust') {
+          handleCancelAdjust();
+          return;
+        } else if (activeTool === 'cleanup') {
+          handleCancelCleanup();
+          return;
+        } else if (activeTool === 'crop') {
+          handleCancelCrop();
+          return;
         }
         setActiveTool('none');
       } else if (hasChanges) {
@@ -568,8 +1121,10 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
     return () => window.removeEventListener('hardwareBackPress', handleHardwareBack);
   }, [isOpen, showDiscardConfirm, showDeleteConfirm, activeTool, pages.length, hasChanges, resizeBackupPage, activeIndex, onClose]);
 
-  // Initialize pages when opened
+  // Initialize pages and title when opened
   useEffect(() => {
+    if (!isOpen) return;
+
     if (initialScan && initialScan.pages.length > 0) {
       setDocName(initialScan.title);
       const items: EditablePage[] = initialScan.pages.map((p) => ({
@@ -593,67 +1148,98 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
       historyIndexRef.current = 0;
       setCanUndo(false);
       setCanRedo(false);
-    } else if (scanItems && scanItems.length > 0) {
-      const items: EditablePage[] = scanItems.map((item, idx) => ({
-        id: `page_${Date.now()}_${idx}`,
-        file: item.file,
-        originalUrl: item.rawUrl,
-        croppedUrl: item.displayUrl,
-        displayUrl: item.displayUrl,
-        rotation: 0,
-        filter: 'original',
-        adjustments: { brightness: 0, contrast: 0 },
-        format: 'fit',
-        cropCorners: item.cropCorners || {
-          topLeft: { x: 0.05, y: 0.05 },
-          topRight: { x: 0.95, y: 0.05 },
-          bottomRight: { x: 0.95, y: 0.95 },
-          bottomLeft: { x: 0.05, y: 0.95 },
-        },
-      }));
-      setPages(items);
-      const startIdx = 0;
-      setActiveIndex(startIdx);
-      historyRef.current = [{
-        pages: items.map((p) => ({ ...p })),
-        activeIndex: startIdx,
-      }];
-      historyIndexRef.current = 0;
-      setCanUndo(false);
-      setCanRedo(false);
-    } else if (initialPages && initialPages.length > 0) {
-      const items: EditablePage[] = initialPages.map((file, idx) => {
-        const url = URL.createObjectURL(file);
-        return {
+    } else {
+      // New scan session (camera capture or imported document):
+      // Derive a meaningful base name from the first imported file if available,
+      // otherwise fall back to a localized scan name.
+      let suggestedBase = '';
+      if (initialPages && initialPages.length > 0) {
+        suggestedBase = formatDocTitleFromFilename(initialPages[0].name);
+      } else if (scanItems && scanItems.length > 0 && scanItems[0].file) {
+        suggestedBase = formatDocTitleFromFilename(scanItems[0].file.name);
+      }
+
+      if (!suggestedBase) {
+        const today = new Date();
+        const dateStr = today.toLocaleDateString('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        });
+        suggestedBase = `Paperweight Scan ${dateStr}`;
+      }
+
+      // Query database to ensure the assigned title is distinct from any existing scan
+      getAllScans().then((existing) => {
+        const existingTitles = existing.map((s) => s.title);
+        const uniqueTitle = generateUniqueScanTitle(suggestedBase, existingTitles);
+        setDocName(uniqueTitle);
+      }).catch(() => {
+        setDocName(suggestedBase);
+      });
+
+      if (scanItems && scanItems.length > 0) {
+        const items: EditablePage[] = scanItems.map((item, idx) => ({
           id: `page_${Date.now()}_${idx}`,
-          file,
-          originalUrl: url,
-          croppedUrl: url,
-          displayUrl: url,
+          file: item.file,
+          originalUrl: item.rawUrl,
+          croppedUrl: item.displayUrl,
+          displayUrl: item.displayUrl,
           rotation: 0,
-          filter: 'original', // Natural true-color photo mode by default
+          filter: 'original',
           adjustments: { brightness: 0, contrast: 0 },
           format: 'fit',
-          cropCorners: {
+          cropCorners: item.cropCorners || {
             topLeft: { x: 0.05, y: 0.05 },
             topRight: { x: 0.95, y: 0.05 },
             bottomRight: { x: 0.95, y: 0.95 },
             bottomLeft: { x: 0.05, y: 0.95 },
           },
-        };
-      });
-      setPages(items);
-      const startIdx = 0;
-      setActiveIndex(startIdx);
-      historyRef.current = [{
-        pages: items.map((p) => ({ ...p })),
-        activeIndex: startIdx,
-      }];
-      historyIndexRef.current = 0;
-      setCanUndo(false);
-      setCanRedo(false);
+        }));
+        setPages(items);
+        const startIdx = 0;
+        setActiveIndex(startIdx);
+        historyRef.current = [{
+          pages: items.map((p) => ({ ...p })),
+          activeIndex: startIdx,
+        }];
+        historyIndexRef.current = 0;
+        setCanUndo(false);
+        setCanRedo(false);
+      } else if (initialPages && initialPages.length > 0) {
+        const items: EditablePage[] = initialPages.map((file, idx) => {
+          const url = URL.createObjectURL(file);
+          return {
+            id: `page_${Date.now()}_${idx}`,
+            file,
+            originalUrl: url,
+            croppedUrl: url,
+            displayUrl: url,
+            rotation: 0,
+            filter: 'original', // Natural true-color photo mode by default
+            adjustments: { brightness: 0, contrast: 0 },
+            format: 'fit',
+            cropCorners: {
+              topLeft: { x: 0.05, y: 0.05 },
+              topRight: { x: 0.95, y: 0.05 },
+              bottomRight: { x: 0.95, y: 0.95 },
+              bottomLeft: { x: 0.05, y: 0.95 },
+            },
+          };
+        });
+        setPages(items);
+        const startIdx = 0;
+        setActiveIndex(startIdx);
+        historyRef.current = [{
+          pages: items.map((p) => ({ ...p })),
+          activeIndex: startIdx,
+        }];
+        historyIndexRef.current = 0;
+        setCanUndo(false);
+        setCanRedo(false);
+      }
     }
-  }, [initialPages, initialScan, scanItems]);
+  }, [isOpen, initialPages, initialScan, scanItems]);
 
   const activePage = pages[activeIndex];
 
@@ -895,6 +1481,56 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
     setActiveTool('none');
   };
 
+  // 1. Apply Filter to All Pages
+  const handleApplyFilterToAll = async () => {
+    if (pages.length === 0 || isProcessing) return;
+    const currentFilter = activePage?.filter || 'original';
+    setIsProcessing(true);
+    try {
+      const updatedPages = await Promise.all(
+        pages.map(async (p) => {
+          const updated = { ...p, filter: currentFilter };
+          const newUrl = await renderPageWithEnhancements(updated);
+          return { ...updated, displayUrl: newUrl };
+        })
+      );
+      setPages(updatedPages);
+      pushHistory(updatedPages, activeIndex);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDoneFilters = async () => {
+    if (applyFilterToAll && pages.length > 1) {
+      await handleApplyFilterToAll();
+    }
+    setActiveTool('none');
+  };
+
+  // 2. Apply Format / Preset to All Pages
+  const handleApplyFormatToAll = async () => {
+    if (pages.length === 0 || isProcessing) return;
+    setIsProcessing(true);
+    try {
+      const updatedPages = await Promise.all(
+        pages.map(async (p) => {
+          const updated = { ...p, format: selectedFormat };
+          const newUrl = await renderPageWithEnhancements(updated);
+          return { ...updated, displayUrl: newUrl };
+        })
+      );
+      setPages(updatedPages);
+      pushHistory(updatedPages, activeIndex);
+      setResizeBackupPage(null);
+      setActiveTool('none');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+
+
   // Free 4-Corner Cropper Pointer Handlers (Adobe Scan style)
   const handleHandlePointerDown = (handle: CropHandleType, e: React.PointerEvent) => {
     e.stopPropagation();
@@ -903,7 +1539,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
     } catch {
       // ignore
     }
-    dragStartRef.current = {
+    cropDragStartRef.current = {
       clientX: e.clientX,
       clientY: e.clientY,
       corners: { ...cropCorners },
@@ -912,11 +1548,11 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
   };
 
   const handleCropPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!draggingHandle || !cropContainerRef.current || !dragStartRef.current) return;
+    if (!draggingHandle || !cropContainerRef.current || !cropDragStartRef.current) return;
     const rect = cropContainerRef.current.getBoundingClientRect();
-    const init = dragStartRef.current.corners;
-    const dx = (e.clientX - dragStartRef.current.clientX) / rect.width;
-    const dy = (e.clientY - dragStartRef.current.clientY) / rect.height;
+    const init = cropDragStartRef.current.corners;
+    const dx = (e.clientX - cropDragStartRef.current.clientX) / rect.width;
+    const dy = (e.clientY - cropDragStartRef.current.clientY) / rect.height;
     const clamp = (v: number) => Math.max(0.01, Math.min(0.99, v));
 
     let nextCorners = { ...init };
@@ -969,7 +1605,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
       setCropCorners({ ...activeCornersRef.current });
     }
     setDraggingHandle(null);
-    dragStartRef.current = null;
+    cropDragStartRef.current = null;
   };
 
   // Undo / Reset crop corners back to detected or initial document boundary
@@ -1023,6 +1659,18 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
       const formattedUrl = await renderPageWithEnhancements(previewCandidate);
       previewCandidate.displayUrl = formattedUrl;
 
+      // Instant aspect ratio update so layout adjusts immediately
+      if (format !== 'fit') {
+        const isLandscape = (pageAspectRatios[activePage.id] || 1) > 1;
+        let targetAspect = 210 / 297;
+        if (format === 'letter') targetAspect = 8.5 / 11;
+        else if (format === 'a5') targetAspect = 148 / 210;
+        setPageAspectRatios((prev) => ({
+          ...prev,
+          [activePage.id]: isLandscape ? 1 / targetAspect : targetAspect,
+        }));
+      }
+
       setPages((prev) => {
         const next = [...prev];
         next[activeIndex] = previewCandidate;
@@ -1035,7 +1683,11 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
     }
   };
 
-  const handleDoneResize = () => {
+  const handleDoneResize = async () => {
+    if (applyFormatToAll && pages.length > 1) {
+      await handleApplyFormatToAll();
+      return;
+    }
     if (activePage && resizeBackupPage && activePage.format !== resizeBackupPage.format) {
       pushHistory(pages, activeIndex);
     }
@@ -1101,10 +1753,10 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
     ctx.lineJoin = 'round';
     ctx.strokeStyle = cleanupColor;
     ctx.fillStyle = cleanupColor;
-    ctx.lineWidth = brushSize * scaleX * 0.5;
+    ctx.lineWidth = brushSize * scaleX;
 
     ctx.beginPath();
-    ctx.arc(x, y, (brushSize * scaleX * 0.5) / 2, 0, Math.PI * 2);
+    ctx.arc(x, y, (brushSize * scaleX) / 2, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.beginPath();
@@ -1166,6 +1818,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
       next[activeIndex] = {
         ...next[activeIndex],
         originalUrl: newUrl,
+        croppedUrl: newUrl,
         displayUrl: newUrl,
       };
       setPages(next);
@@ -1214,13 +1867,28 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
 
       const imgWidth = embeddedImg.width;
       const imgHeight = embeddedImg.height;
+      const isLandscape = imgWidth > imgHeight;
 
-      const pdfPage = pdfDoc.addPage([imgWidth, imgHeight]);
+      let pdfPageWidth = imgWidth;
+      let pdfPageHeight = imgHeight;
+
+      if (page.format === 'a4') {
+        pdfPageWidth = isLandscape ? 841.89 : 595.28;
+        pdfPageHeight = isLandscape ? 595.28 : 841.89;
+      } else if (page.format === 'letter') {
+        pdfPageWidth = isLandscape ? 792.0 : 612.0;
+        pdfPageHeight = isLandscape ? 612.0 : 792.0;
+      } else if (page.format === 'a5') {
+        pdfPageWidth = isLandscape ? 595.28 : 419.53;
+        pdfPageHeight = isLandscape ? 419.53 : 595.28;
+      }
+
+      const pdfPage = pdfDoc.addPage([pdfPageWidth, pdfPageHeight]);
       pdfPage.drawImage(embeddedImg, {
         x: 0,
         y: 0,
-        width: imgWidth,
-        height: imgHeight,
+        width: pdfPageWidth,
+        height: pdfPageHeight,
       });
     }
 
@@ -1229,7 +1897,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
   };
 
   // Helper to persist to IndexedDB
-  const persistScanToDb = async () => {
+  const persistScanToDb = async (): Promise<string> => {
     try {
       const thumbDataUrl = await urlToDataUrl(pages[0].displayUrl);
       const storedPages = await Promise.all(
@@ -1245,9 +1913,17 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
         }))
       );
 
+      // Ensure docName is unique across other scans in the database
+      const existing = await getAllScans();
+      const otherTitles = existing
+        .filter((s) => s.id !== (initialScan?.id || ''))
+        .map((s) => s.title);
+      const uniqueTitle = generateUniqueScanTitle(docName.trim(), otherTitles);
+      setDocName(uniqueTitle);
+
       const savedScan: StoredScanDoc = {
         id: initialScan?.id || `scan_${Date.now()}`,
-        title: docName,
+        title: uniqueTitle,
         createdAt: initialScan?.createdAt || Date.now(),
         thumbnailUrl: thumbDataUrl,
         pageCount: pages.length,
@@ -1256,8 +1932,10 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
 
       await saveScan(savedScan);
       if (onScanSaved) onScanSaved(savedScan);
+      return uniqueTitle;
     } catch (e) {
       console.warn('Storage save warning:', e);
+      return docName;
     }
   };
 
@@ -1266,10 +1944,10 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
     if (pages.length === 0) return;
     setIsProcessing(true);
     try {
+      const savedTitle = await persistScanToDb();
       const pdfBlob = await generatePdfBlob();
-      const filename = `${docName.replace(/\s+/g, '_')}.pdf`;
+      const filename = `${savedTitle.replace(/\s+/g, '_')}.pdf`;
       await downloadBlob(pdfBlob, filename);
-      await persistScanToDb();
       onSavePdf(pdfBlob, filename);
     } catch (err) {
       console.error('Failed to create PDF:', err);
@@ -1278,21 +1956,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
     }
   };
 
-  // Share High-Resolution PDF with Caption
-  const handleShareDoc = async () => {
-    if (pages.length === 0) return;
-    setIsProcessing(true);
-    try {
-      const pdfBlob = await generatePdfBlob();
-      const filename = `${docName.replace(/\s+/g, '_')}.pdf`;
-      await persistScanToDb();
-      await shareBlob(pdfBlob, filename);
-    } catch (err) {
-      console.error('Failed to share PDF:', err);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+
 
   if (!isOpen || pages.length === 0) return null;
 
@@ -1300,153 +1964,141 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
     <div className="fixed inset-0 z-50 bg-surface-bg text-text-main flex flex-col justify-between overflow-hidden select-none">
       {/* 1. TOP HEADER (Theme-aligned with safe-area status bar spacing) */}
       <div className="relative z-30 px-3 sm:px-4 py-2 pt-[max(0.5rem,var(--safe-area-top))] pl-[max(0.75rem,var(--safe-area-left))] pr-[max(0.75rem,var(--safe-area-right))] flex items-center justify-between border-b border-surface-border bg-surface-panel text-text-main shrink-0">
-        {/* Back Arrow with Discard Confirmation (only if changes exist) */}
+        {/* Back Button with Text as everywhere else */}
         <button
           type="button"
           onClick={handleBack}
-          className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover text-text-main transition-colors cursor-pointer"
-          aria-label="Back"
+          className="inline-flex items-center gap-1.5 h-9 sm:h-[38px] px-3 rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle text-xs font-semibold text-text-main transition-colors duration-fast ease-out cursor-pointer shrink-0 shadow-2xs"
           title="Back"
+          aria-label="Back"
         >
-          <ArrowLeft className="w-5 h-5" />
+          <ArrowLeft className="w-4 h-4 text-text-muted shrink-0" />
+          <span>Back</span>
         </button>
 
-        {/* Editable Document Title */}
-        <div className="flex items-center gap-1.5 max-w-[200px] sm:max-w-md min-w-0">
-          {isEditingName ? (
-            <input
-              type="text"
-              value={docName}
-              autoFocus
-              onBlur={() => setIsEditingName(false)}
-              onKeyDown={(e) => e.key === 'Enter' && setIsEditingName(false)}
-              onChange={(e) => setDocName(e.target.value)}
-              className="bg-surface-subtle text-text-main font-semibold text-sm px-2.5 min-h-[44px] rounded-control border border-accent focus:outline-none w-full"
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIsEditingName(true)}
-              className="min-h-[44px] px-2 rounded-control flex items-center gap-1.5 text-sm font-semibold truncate hover:bg-surface-hover cursor-pointer text-text-main"
-              title="Click to rename document"
-            >
-              <span className="truncate">{docName}</span>
-              <Edit2 className="w-3.5 h-3.5 text-text-muted shrink-0" />
-            </button>
-          )}
+        {/* Centered Document Title (centered to content area excluding desktop right toolbar) */}
+        <div className="absolute inset-y-0 left-0 right-0 lg:right-72 xl:right-80 flex items-center justify-center pointer-events-none px-20 sm:px-28">
+          <div className="pointer-events-auto flex items-center gap-1.5 max-w-[280px] sm:max-w-md min-w-0">
+            {isEditingName ? (
+              <input
+                type="text"
+                value={docName}
+                autoFocus
+                onBlur={() => setIsEditingName(false)}
+                onKeyDown={(e) => e.key === 'Enter' && setIsEditingName(false)}
+                onChange={(e) => setDocName(e.target.value)}
+                className="bg-surface-subtle text-text-main font-semibold text-sm px-2.5 h-9 rounded-control border border-accent focus:outline-none w-full text-center"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsEditingName(true)}
+                className="h-9 px-2.5 rounded-control flex items-center justify-center gap-1.5 text-sm font-semibold truncate hover:bg-surface-hover cursor-pointer text-text-main"
+                title="Click to rename document"
+              >
+                <span className="truncate">{docName}</span>
+                <Edit2 className="w-3.5 h-3.5 text-text-muted shrink-0" />
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Right Action: Share with Caption */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={handleShareDoc}
-            className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover text-text-main transition-colors cursor-pointer"
-            aria-label="Share document"
-            title="Share with caption"
-          >
-            <Share2 className="w-5 h-5 text-accent" />
-          </button>
+        {/* Right Header: Mobile Undo/Redo & Desktop Balance Spacer */}
+        <div className="flex items-center gap-1.5 shrink-0 z-10">
+          {activeTool === 'none' && (
+            <div className="flex items-center gap-1 lg:hidden">
+              <button
+                type="button"
+                onClick={handleUndo}
+                disabled={!canUndo}
+                style={{ touchAction: 'manipulation' }}
+                className="w-8 h-8 inline-flex items-center justify-center rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-2xs"
+                aria-label="Undo"
+                title="Undo"
+              >
+                <Undo2 className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleRedo}
+                disabled={!canRedo}
+                style={{ touchAction: 'manipulation' }}
+                className="w-8 h-8 inline-flex items-center justify-center rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle text-text-main disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors shadow-2xs"
+                aria-label="Redo"
+                title="Redo"
+              >
+                <Redo2 className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+          <div className="w-20 hidden lg:block" />
         </div>
       </div>
 
-      {/* 2. CENTER PREVIEW AREA & PAGE VIEWER */}
-      <div className="relative flex-1 min-h-0 w-full flex flex-col items-center justify-between overflow-hidden bg-surface-bg transition-colors duration-150">
-        {/* Page Indicator Bar */}
-        <div className="w-full flex items-center justify-between px-3 sm:px-4 py-1.5 shrink-0 select-none">
-          {activeTool === 'none' ? (
-            <button
-              type="button"
-              onClick={handleUndo}
-              disabled={!canUndo}
-              style={{ touchAction: 'manipulation' }}
-              className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover text-text-main disabled:text-text-disabled disabled:cursor-not-allowed cursor-pointer transition-colors touch-manipulation"
-              aria-label="Undo"
-              title="Undo"
-            >
-              <Undo2 className="w-4 h-4" />
-            </button>
-          ) : (
-            <div className="w-11 h-11" />
-          )}
-
-          {pages.length > 1 ? (
-            <div className="flex items-center gap-2 text-xs text-text-muted">
-              <button
-                type="button"
-                onClick={() => setActiveIndex((prev) => Math.max(0, prev - 1))}
-                disabled={activeIndex === 0}
-                style={{ touchAction: 'manipulation' }}
-                className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover hover:text-text-main disabled:text-text-disabled cursor-pointer transition-colors touch-manipulation"
-                aria-label="Previous page"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className="font-mono text-xs">
-                Page <span className="font-bold text-text-main">{activeIndex + 1}</span> / {pages.length}
-              </span>
-              <button
-                type="button"
-                onClick={() => setActiveIndex((prev) => Math.min(pages.length - 1, prev + 1))}
-                disabled={activeIndex === pages.length - 1}
-                style={{ touchAction: 'manipulation' }}
-                className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover hover:text-text-main disabled:text-text-disabled cursor-pointer transition-colors touch-manipulation"
-                aria-label="Next page"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          ) : (
-            <div className="text-xs text-text-muted font-mono">
-              Page <span className="font-bold text-text-main">1</span> of 1
-            </div>
-          )}
-
-          {activeTool === 'none' ? (
-            <button
-              type="button"
-              onClick={handleRedo}
-              disabled={!canRedo}
-              style={{ touchAction: 'manipulation' }}
-              className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover text-text-main disabled:text-text-disabled disabled:cursor-not-allowed cursor-pointer transition-colors touch-manipulation"
-              aria-label="Redo"
-              title="Redo"
-            >
-              <Redo2 className="w-4 h-4" />
-            </button>
-          ) : (
-            <div className="w-11 h-11" />
-          )}
-        </div>
-
-        {/* Smooth Gallery Track Container */}
+      {/* MAIN WORKSPACE: Left Document Canvas & Sub-panels + Desktop Right Options Bar */}
+      <div className="flex-1 min-h-0 w-full flex flex-col lg:flex-row overflow-hidden relative">
+        {/* Left / Center Document Desk */}
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col justify-between overflow-hidden bg-surface-bg transition-colors duration-150 relative">
+        {/* Smooth Gallery Track Container with Image Viewer Zoom, Pan, and Slide (matching ImageGalleryModal) */}
         <div
           ref={galleryContainerRef}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onTouchCancel={handleTouchEnd}
-          className="relative flex-1 min-h-0 w-full flex items-center justify-center overflow-hidden touch-pan-y select-none"
+          onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onDoubleClick={handleDoubleClick}
+          style={{ touchAction: 'none' }}
+          className={`relative flex-1 min-h-0 w-full flex items-center justify-center overflow-hidden select-none bg-surface-bg ${
+            scale > 1.05
+              ? isDragging
+                ? 'cursor-grabbing'
+                : 'cursor-grab'
+              : pages.length > 1
+              ? 'cursor-grab active:cursor-grabbing'
+              : 'cursor-default'
+          }`}
         >
           <div
             className="flex h-full w-full items-center"
             style={{
-              transform: `translateX(calc(-${activeIndex * 100}% + ${dragOffset}px))`,
-              transition: isDragging ? 'none' : 'transform 260ms cubic-bezier(0.16, 1, 0.3, 1)',
+              transform: `translateX(calc(-${Math.min(Math.max(0, pages.length - 1), activeIndex) * 100}% + ${dragOffset}px))`,
+              transition: isDragging || dragOffset !== 0 ? 'none' : 'transform 260ms cubic-bezier(0.16, 1, 0.3, 1)',
               willChange: 'transform',
             }}
           >
             {pages.map((page, idx) => (
               <div
                 key={page.id}
-                className="w-full h-full shrink-0 flex items-center justify-center p-2 sm:p-4"
+                className="w-full h-full shrink-0 flex items-center justify-center p-2 sm:p-4 overflow-hidden"
               >
-                <div className="relative max-w-full max-h-[66vh] flex items-center justify-center shadow-2xl rounded-none overflow-hidden border border-black/10 dark:border-white/10 bg-white">
+                <div
+                  className="relative max-w-full max-h-full flex items-center justify-center shadow-2xl rounded-none border border-black/15 bg-white"
+                  style={{
+                    aspectRatio: pageAspectRatios[page.id] ? `${pageAspectRatios[page.id]}` : undefined,
+                    transform:
+                      idx === activeIndex && scale > 1.0
+                        ? `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${scale})`
+                        : undefined,
+                    transformOrigin: 'center center',
+                    transition: isDragging
+                      ? 'none'
+                      : 'transform 140ms cubic-bezier(0.22, 1, 0.36, 1)',
+                    willChange: 'transform',
+                  }}
+                >
                   <img
                     ref={idx === activeIndex ? imageElementRef : undefined}
                     src={idx === activeIndex && activeTool === 'crop' ? page.originalUrl : page.displayUrl}
                     alt={`Page ${idx + 1}`}
-                    onLoad={() => {
+                    onLoad={(e) => {
+                      const target = e.currentTarget;
+                      if (target.naturalWidth && target.naturalHeight) {
+                        const aspect = target.naturalWidth / target.naturalHeight;
+                        setPageAspectRatios((prev) =>
+                          prev[page.id] === aspect ? prev : { ...prev, [page.id]: aspect }
+                        );
+                      }
                       if (idx === activeIndex && cropContainerRef.current) {
                         const rect = cropContainerRef.current.getBoundingClientRect();
                         if (rect.width > 0 && rect.height > 0) {
@@ -1460,7 +2112,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                           ? `brightness(${1 + adjustments.brightness / 50}) contrast(${1 + adjustments.contrast / 50})`
                           : undefined,
                     }}
-                    className="max-w-full max-h-[66vh] object-contain block bg-white transition-opacity duration-150 select-none pointer-events-none"
+                    className="max-w-full max-h-full object-contain block bg-white transition-opacity duration-150 select-none pointer-events-none"
                     draggable={false}
                   />
 
@@ -1681,179 +2333,159 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                       className="absolute inset-0 w-full h-full touch-none z-20 cursor-crosshair pointer-events-auto"
                     />
                   )}
+
+                  {/* OVERLAY 3: Floating Real-time Brush Size Circle Indicator */}
+                  {idx === activeIndex && activeTool === 'cleanup' && isAdjustingBrushSize && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30 animate-in fade-in duration-75">
+                      <div className="relative flex items-center justify-center">
+                        <div
+                          style={{
+                            width: `${brushSize}px`,
+                            height: `${brushSize}px`,
+                          }}
+                          className="rounded-full border-2 border-accent bg-accent/25 shadow-lg backdrop-blur-[1px]"
+                        />
+                        <div className="absolute -bottom-6 px-2 py-0.5 rounded-chip bg-surface-panel/95 border border-surface-border text-[11px] font-mono font-bold text-text-main shadow-md whitespace-nowrap">
+                          {brushSize}px
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
           </div>
-        </div>
-      </div>
 
-      {/* 2.5 FULL-SCREEN REORDER OVERLAY (Matching User Reference Image 1) */}
-      {activeTool === 'reorder' && (
-        <div className="absolute inset-0 z-50 bg-surface-bg text-text-main flex flex-col justify-between overflow-hidden animate-in fade-in duration-150">
-          {/* Top Bar: [✕] Left, [Reorder] Center, [✓] Right */}
-          <div className="relative z-10 px-4 py-3 pt-[max(0.75rem,var(--safe-area-top))] pl-[max(1rem,var(--safe-area-left))] pr-[max(1rem,var(--safe-area-right))] flex items-center justify-between border-b border-surface-border bg-surface-panel shrink-0">
-            <button
-              type="button"
-              onClick={handleCancelReorder}
-              className="p-1.5 rounded-full hover:bg-surface-subtle text-text-muted hover:text-text-main active:scale-95 transition-colors cursor-pointer"
-              aria-label="Cancel reorder"
-              title="Cancel"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <h2 className="text-base font-semibold text-text-main">Reorder</h2>
-
-            <button
-              type="button"
-              onClick={handleConfirmReorder}
-              className="p-1.5 rounded-full hover:bg-surface-subtle text-accent active:scale-95 transition-colors cursor-pointer"
-              aria-label="Confirm reorder"
-              title="Confirm"
-            >
-              <Check className="w-5 h-5 stroke-[2.5]" />
-            </button>
-          </div>
-
-          {/* 2-Column Scrollable Grid */}
-          <div
-            onTouchMove={moveTouchDrag}
-            onTouchEnd={endTouchDrag}
-            onTouchCancel={endTouchDrag}
-            className="flex-1 min-h-0 overflow-y-auto p-6 sm:p-8 select-none"
-          >
-            {/* Floating Dragged Card Follower (Follows user finger anywhere on screen) */}
-            {draggedPageIndex !== null && touchDragPos !== null && reorderPages[draggedPageIndex] && (
-              <div
-                style={{
-                  left: `${touchDragPos.x}px`,
-                  top: `${touchDragPos.y}px`,
-                  transform: 'translate(-50%, -50%) scale(1.08)',
-                }}
-                className="fixed z-50 pointer-events-none w-36 aspect-[1/1.414] bg-white rounded-lg shadow-2xl border-2 border-accent overflow-hidden opacity-95 transition-none"
-              >
-                <img
-                  src={reorderPages[draggedPageIndex].displayUrl}
-                  className="w-full h-full object-contain pointer-events-none"
-                  alt="Dragging preview"
-                />
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-x-6 gap-y-6 max-w-md mx-auto">
-              {reorderPages.map((p, idx) => {
-                const isBeingDragged = draggedPageIndex === idx;
-                const isDragTarget = dragOverPageIndex === idx;
-                const isSelectedForSwap = selectedSwapIndex === idx;
-
-                return (
-                  <div
-                    key={p.id}
-                    data-reorder-index={idx}
-                    onClick={() => {
-                      if (draggedPageIndex !== null) return;
-                      if (selectedSwapIndex === null) {
-                        setSelectedSwapIndex(idx);
-                      } else if (selectedSwapIndex === idx) {
-                        setSelectedSwapIndex(null);
-                      } else {
-                        handleMoveReorderPage(selectedSwapIndex, idx);
-                        setSelectedSwapIndex(null);
-                      }
-                    }}
-                    onTouchStart={(e) => startTouchHold(idx, e)}
-                    style={{ touchAction: 'none' }}
-                    className="relative flex flex-col items-center cursor-grab active:cursor-grabbing select-none touch-none"
+          {/* Android / Mobile Redesigned Page Indicator Floating Pill */}
+          {pages.length > 0 && activeTool === 'none' && (
+            <div className="lg:hidden absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none select-none animate-in fade-in duration-150">
+              <div className="pointer-events-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface-panel/95 backdrop-blur-md border border-surface-border shadow-lifted text-text-main text-xs font-mono">
+                {pages.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveIndex((prev) => Math.max(0, prev - 1))}
+                    disabled={activeIndex <= 0}
+                    style={{ touchAction: 'manipulation' }}
+                    className="w-7 h-7 inline-flex items-center justify-center rounded-full hover:bg-surface-hover text-text-muted hover:text-text-main disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    aria-label="Previous page"
+                    title="Previous page"
                   >
-                    <div
-                      className={`w-full aspect-[1/1.414] bg-white rounded-none overflow-hidden border transition-colors flex items-center justify-center ${
-                        isBeingDragged
-                          ? 'opacity-40 border-2 border-accent shadow-lifted'
-                          : isDragTarget && draggedPageIndex !== null && draggedPageIndex !== idx
-                          ? 'border-accent ring-2 ring-accent shadow-lifted z-20'
-                          : isSelectedForSwap
-                          ? 'ring-2 ring-accent border-accent shadow-lifted'
-                          : 'border-surface-border'
-                      }`}
-                    >
-                      <img
-                        src={p.displayUrl}
-                        alt={`Page ${idx + 1}`}
-                        className="w-full h-full object-contain pointer-events-none"
-                        draggable={false}
-                      />
-                    </div>
-                    <span className="mt-2 text-sm font-medium text-text-muted">
-                      {idx + 1}
-                    </span>
-
-                    {/* Prominent visual badge indicating where the dropped page will land */}
-                    {isDragTarget && draggedPageIndex !== null && draggedPageIndex !== idx && (
-                      <div className="absolute -top-2.5 px-2.5 py-0.5 rounded-chip bg-accent text-accent-contrast text-xs font-mono font-semibold shadow-lifted pointer-events-none">
-                        Drop #{idx + 1}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                )}
+                <span className="px-1.5 text-xs font-mono select-none">
+                  Page <span className="font-bold text-text-main">{Math.min(pages.length, Math.max(1, activeIndex + 1))}</span>
+                  <span className="text-text-muted font-normal mx-1">/</span>
+                  <span className="text-text-muted">{pages.length}</span>
+                </span>
+                {pages.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveIndex((prev) => Math.min(pages.length - 1, prev + 1))}
+                    disabled={activeIndex >= pages.length - 1}
+                    style={{ touchAction: 'manipulation' }}
+                    className="w-7 h-7 inline-flex items-center justify-center rounded-full hover:bg-surface-hover text-text-muted hover:text-text-main disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    aria-label="Next page"
+                    title="Next page"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
-      )}
 
-      {/* 3. TOOL SUB-PANELS */}
-      {activeTool !== 'none' && activeTool !== 'reorder' && (
-        <div className="relative z-30 bg-surface-panel border-t border-surface-border px-4 py-3 text-text-main">
+        {/* 3. DEDICATED BOTTOM SUB-OPTIONS SHELF
+            Has a permanent, fixed height on desktop (h-28 shrink-0) so the document area above it never resizes or shifts.
+            When a tool is active, its sub-panel is rendered here.
+            When activeTool === 'none', rendered on desktop only (hidden on mobile to maximize viewport area).
+        */}
+        <div className={`${activeTool === 'none' ? 'hidden lg:flex' : 'flex'} h-28 shrink-0 w-full border-t border-surface-border bg-surface-panel flex-col justify-center px-3 sm:px-4 py-2 relative z-30`}>
           {/* A. CROP SUB-PANEL */}
           {activeTool === 'crop' && (
-            <div className="flex items-center justify-between max-w-md mx-auto px-2 py-0.5">
-              <button
-                type="button"
-                onClick={handleResetCrop}
-                className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover text-text-muted hover:text-text-main cursor-pointer transition-colors border border-surface-border"
-                title="Undo / Reset crop"
-                aria-label="Undo / Reset crop"
-              >
-                <Undo2 className="w-4 h-4" />
-              </button>
+            <div className="w-full max-w-2xl mx-auto space-y-2">
+              <div className="flex items-center justify-between w-full">
+                <button
+                  type="button"
+                  onClick={handleCancelCrop}
+                  className="h-8 px-3 rounded-control text-xs font-medium text-text-muted hover:text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  Cancel
+                </button>
 
-              {/* Dedicated Rotate button in Crop mode */}
-              <button
-                type="button"
-                onClick={handleRotate}
-                disabled={isRotating}
-                className="min-h-[44px] flex items-center gap-1.5 px-4 rounded-control bg-surface-subtle hover:bg-surface-hover text-text-main text-xs font-semibold border border-surface-border cursor-pointer transition-colors disabled:opacity-50"
-                title="Rotate page 90° Clockwise"
-                aria-label="Rotate page 90° Clockwise"
-              >
-                <RotateCw className={`w-4 h-4 ${isRotating ? 'animate-spin text-accent' : ''}`} />
-                <span>{isRotating ? 'Rotating…' : 'Rotate'}</span>
-              </button>
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <button
+                    type="button"
+                    onClick={handleRotate}
+                    disabled={isRotating}
+                    className="h-8 px-2.5 rounded-control text-xs font-medium text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                    title="Rotate 90° Clockwise"
+                  >
+                    <RotateCw className={`w-3.5 h-3.5 ${isRotating ? 'animate-spin text-accent' : ''}`} />
+                    <span>Rotate</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResetCrop}
+                    className="h-8 px-2.5 rounded-control text-xs font-medium text-text-muted hover:text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer flex items-center gap-1.5"
+                    title="Reset crop boundary"
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                    <span>Reset</span>
+                  </button>
+                </div>
 
-              <button
-                type="button"
-                onClick={handleApplyCrop}
-                className="min-h-[44px] px-5 rounded-control bg-accent hover:bg-accent-hover text-xs font-semibold text-accent-contrast cursor-pointer transition-colors"
-              >
-                Done
-              </button>
+                <button
+                  type="button"
+                  onClick={handleApplyCrop}
+                  className="h-8 px-4 rounded-control text-xs font-bold text-accent-contrast bg-accent hover:bg-accent-hover shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Done</span>
+                </button>
+              </div>
             </div>
           )}
 
           {/* B. FILTERS SUB-PANEL */}
           {activeTool === 'filters' && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-text-main font-semibold">Document Filters</span>
+            <div className="w-full max-w-2xl mx-auto space-y-2">
+              <div className="flex items-center justify-between w-full">
                 <button
                   type="button"
-                  onClick={() => setActiveTool('none')}
-                  style={{ touchAction: 'manipulation' }}
-                  className="min-h-[36px] text-xs text-text-main hover:text-accent font-semibold cursor-pointer touch-manipulation px-2.5 rounded-control"
+                  onClick={handleCancelFilters}
+                  className="h-8 px-3 rounded-control text-xs font-medium text-text-muted hover:text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer flex items-center gap-1.5"
                 >
-                  Done
+                  Cancel
                 </button>
+
+                <div className="flex items-center gap-2 sm:gap-3">
+                  {pages.length > 1 && (
+                    <label className="flex items-center gap-1.5 cursor-pointer text-xs font-medium text-text-muted hover:text-text-main select-none">
+                      <input
+                        type="checkbox"
+                        checked={applyFilterToAll}
+                        onChange={(e) => setApplyFilterToAll(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded accent-accent cursor-pointer"
+                      />
+                      <span>Apply to all</span>
+                    </label>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleDoneFilters}
+                    disabled={isProcessing}
+                    className="h-8 px-4 rounded-control text-xs font-bold text-accent-contrast bg-accent hover:bg-accent-hover shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isProcessing ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5" />
+                    )}
+                    <span>Done</span>
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
                 {[
@@ -1867,10 +2499,9 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                     key={f.id}
                     type="button"
                     onClick={() => handleSelectFilter(f.id as DocumentFilterType)}
-                    style={{ touchAction: 'manipulation' }}
-                    className={`min-h-[44px] px-1 rounded-control text-xs font-medium border text-center transition-colors cursor-pointer touch-manipulation ${
+                    className={`h-9 px-1 rounded-control text-xs font-medium border text-center transition-colors cursor-pointer ${
                       activePage?.filter === f.id
-                        ? 'bg-accent text-accent-contrast border-accent font-semibold'
+                        ? 'bg-accent text-accent-contrast border-accent font-semibold shadow-2xs'
                         : 'bg-surface-subtle border-surface-border text-text-main hover:bg-surface-hover'
                     }`}
                   >
@@ -1883,29 +2514,37 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
 
           {/* C. ADJUST SUB-PANEL */}
           {activeTool === 'adjust' && (
-            <div className="space-y-3 max-w-md mx-auto">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-text-main font-semibold">Brightness & Contrast</span>
-                <div className="flex items-center gap-2">
+            <div className="w-full max-w-2xl mx-auto space-y-1.5">
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCancelAdjust}
+                    className="h-8 px-3 rounded-control text-xs font-medium text-text-muted hover:text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    Cancel
+                  </button>
                   <button
                     type="button"
                     onClick={() => setAdjustments({ brightness: 0, contrast: 0 })}
-                    className="min-h-[36px] px-2.5 text-xs text-text-muted hover:text-text-main cursor-pointer rounded-control"
+                    className="h-8 px-2.5 rounded-control text-xs font-medium text-text-muted hover:text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer flex items-center gap-1.5"
                   >
                     Reset
                   </button>
-                  <button
-                    type="button"
-                    onClick={handleApplyAdjustments}
-                    className="min-h-[36px] px-3.5 rounded-control bg-accent hover:bg-accent-hover text-xs font-semibold text-accent-contrast cursor-pointer"
-                  >
-                    Done
-                  </button>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={handleApplyAdjustments}
+                  className="h-8 px-4 rounded-control text-xs font-bold text-accent-contrast bg-accent hover:bg-accent-hover shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Done</span>
+                </button>
               </div>
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center gap-3">
-                  <span className="w-16 text-text-muted font-medium">Brightness</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="w-16 text-text-muted font-medium shrink-0">Brightness</span>
                   <input
                     type="range"
                     min="-50"
@@ -1916,12 +2555,12 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                     }
                     className="flex-1 accent-accent"
                   />
-                  <span className="w-8 text-right font-mono text-text-muted">
+                  <span className="w-8 text-right font-mono text-text-muted text-[11px]">
                     {adjustments.brightness}
                   </span>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="w-16 text-text-muted font-medium">Contrast</span>
+                <div className="flex items-center gap-2">
+                  <span className="w-16 text-text-muted font-medium shrink-0">Contrast</span>
                   <input
                     type="range"
                     min="-50"
@@ -1932,7 +2571,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                     }
                     className="flex-1 accent-accent"
                   />
-                  <span className="w-8 text-right font-mono text-text-muted">
+                  <span className="w-8 text-right font-mono text-text-muted text-[11px]">
                     {adjustments.contrast}
                   </span>
                 </div>
@@ -1942,48 +2581,70 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
 
           {/* D. CLEANUP SUB-PANEL */}
           {activeTool === 'cleanup' && (
-            <div className="space-y-2.5 max-w-md mx-auto">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-text-main">Cleanup Tool</span>
+            <div className="w-full max-w-2xl mx-auto space-y-1.5">
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-1.5 sm:gap-2">
                   <button
                     type="button"
-                    onClick={handleCleanupUndo}
-                    className="min-h-[36px] text-xs px-2.5 rounded-control bg-surface-subtle hover:bg-surface-hover border border-surface-border text-text-muted hover:text-text-main cursor-pointer"
-                  >
-                    Undo
-                  </button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTool('none')}
-                    className="min-h-[36px] px-2.5 text-xs text-text-muted hover:text-text-main cursor-pointer rounded-control"
+                    onClick={handleCancelCleanup}
+                    className="h-8 px-3 rounded-control text-xs font-medium text-text-muted hover:text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer flex items-center gap-1.5"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
-                    onClick={handleApplyCleanup}
-                    className="min-h-[36px] px-3.5 rounded-control bg-accent hover:bg-accent-hover text-xs font-semibold text-accent-contrast cursor-pointer"
+                    onClick={handleCleanupUndo}
+                    disabled={cleanupHistory.length <= 1}
+                    className="h-8 px-2.5 rounded-control text-xs font-medium text-text-muted hover:text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-40"
                   >
-                    Apply
+                    <Undo2 className="w-3.5 h-3.5" />
+                    <span>Undo</span>
                   </button>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={handleApplyCleanup}
+                  className="h-8 px-4 rounded-control text-xs font-bold text-accent-contrast bg-accent hover:bg-accent-hover shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Done</span>
+                </button>
               </div>
 
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 flex-1">
-                  <span className="text-xs text-text-muted font-medium">Size</span>
+                  <span className="text-xs text-text-muted font-medium shrink-0">Size</span>
                   <input
                     type="range"
                     min="6"
-                    max="60"
+                    max="80"
                     value={brushSize}
-                    onChange={(e) => setBrushSize(Number(e.target.value))}
+                    onPointerDown={() => {
+                      if (brushHideTimerRef.current) clearTimeout(brushHideTimerRef.current);
+                      setIsAdjustingBrushSize(true);
+                    }}
+                    onPointerUp={() => {
+                      setIsAdjustingBrushSize(false);
+                    }}
+                    onTouchStart={() => {
+                      if (brushHideTimerRef.current) clearTimeout(brushHideTimerRef.current);
+                      setIsAdjustingBrushSize(true);
+                    }}
+                    onTouchEnd={() => {
+                      setIsAdjustingBrushSize(false);
+                    }}
+                    onChange={(e) => {
+                      setBrushSize(Number(e.target.value));
+                      setIsAdjustingBrushSize(true);
+                      if (brushHideTimerRef.current) clearTimeout(brushHideTimerRef.current);
+                      brushHideTimerRef.current = setTimeout(() => {
+                        setIsAdjustingBrushSize(false);
+                      }, 700);
+                    }}
                     className="flex-1 accent-accent"
                   />
-                  <span className="text-xs font-mono text-text-muted">{brushSize}px</span>
+                  <span className="text-xs font-mono text-text-muted text-[11px] w-8 text-right">{brushSize}px</span>
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -1993,7 +2654,7 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                       type="button"
                       onClick={() => setCleanupColor(c)}
                       style={{ backgroundColor: c }}
-                      className={`w-7 h-7 rounded-control border cursor-pointer ${
+                      className={`w-6 h-6 rounded-control border cursor-pointer ${
                         cleanupColor === c ? 'ring-2 ring-accent border-accent' : 'border-surface-border'
                       }`}
                       title={c}
@@ -2002,15 +2663,14 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsEyedropperActive(!isEyedropperActive)}
-                    className={`min-w-[36px] min-h-[36px] inline-flex items-center justify-center rounded-control border transition-colors cursor-pointer ${
+                    className={`h-7 px-2 rounded-control border transition-colors cursor-pointer flex items-center gap-1 text-xs ${
                       isEyedropperActive
                         ? 'bg-accent border-accent text-accent-contrast'
                         : 'bg-surface-subtle border-surface-border text-text-muted hover:text-text-main'
                     }`}
                     title="Pick color from document"
-                    aria-label="Pick color from document"
                   >
-                    <Pipette className="w-4 h-4" />
+                    <Pipette className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -2019,62 +2679,164 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
 
           {/* E. RESIZE / FORMAT SUB-PANEL */}
           {activeTool === 'resize' && (
-            <div className="space-y-3 max-w-md mx-auto">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-text-main font-semibold">Page Format Preset</span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleCancelResize}
-                    style={{ touchAction: 'manipulation' }}
-                    className="min-h-[36px] px-2.5 rounded-control text-xs text-text-muted hover:text-text-main hover:bg-surface-hover cursor-pointer transition-colors touch-manipulation"
-                  >
-                    Cancel
-                  </button>
+            <div className="w-full max-w-2xl mx-auto space-y-1.5">
+              <div className="flex items-center justify-between w-full">
+                <button
+                  type="button"
+                  onClick={handleCancelResize}
+                  className="h-8 px-3 rounded-control text-xs font-medium text-text-muted hover:text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  Cancel
+                </button>
+
+                <div className="flex items-center gap-2 sm:gap-3">
+                  {pages.length > 1 && (
+                    <label className="flex items-center gap-1.5 cursor-pointer text-xs font-medium text-text-muted hover:text-text-main select-none">
+                      <input
+                        type="checkbox"
+                        checked={applyFormatToAll}
+                        onChange={(e) => setApplyFormatToAll(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded accent-accent cursor-pointer"
+                      />
+                      <span>Apply to all</span>
+                    </label>
+                  )}
                   <button
                     type="button"
                     onClick={handleDoneResize}
-                    style={{ touchAction: 'manipulation' }}
-                    className="min-h-[36px] px-3.5 rounded-control bg-accent hover:bg-accent-hover text-xs font-semibold text-accent-contrast cursor-pointer transition-colors touch-manipulation"
+                    disabled={isProcessing}
+                    className="h-8 px-4 rounded-control text-xs font-bold text-accent-contrast bg-accent hover:bg-accent-hover shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                   >
-                    Done
+                    {isProcessing ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5" />
+                    )}
+                    <span>Done</span>
                   </button>
                 </div>
               </div>
               <div className="grid grid-cols-4 gap-2">
                 {[
-                  { id: 'fit', label: 'Fit' },
-                  { id: 'a4', label: 'A4' },
-                  { id: 'letter', label: 'Letter' },
-                  { id: 'a5', label: 'A5' },
+                  { id: 'fit', label: 'Fit', desc: 'Original' },
+                  { id: 'a4', label: 'A4', desc: '210 × 297 mm' },
+                  { id: 'letter', label: 'Letter', desc: '8.5 × 11 in' },
+                  { id: 'a5', label: 'A5', desc: '148 × 210 mm' },
                 ].map((fmt) => (
                   <button
                     key={fmt.id}
                     type="button"
                     onClick={() => handleSelectFormatPreset(fmt.id as PageFormatType)}
-                    style={{ touchAction: 'manipulation' }}
-                    className={`min-h-[44px] px-1 rounded-control text-xs font-medium border text-center transition-colors cursor-pointer touch-manipulation ${
+                    className={`h-11 px-1 rounded-control text-xs flex flex-col items-center justify-center border text-center transition-colors cursor-pointer ${
                       selectedFormat === fmt.id
-                        ? 'bg-accent text-accent-contrast border-accent font-semibold'
+                        ? 'bg-accent text-accent-contrast border-accent font-semibold shadow-2xs'
                         : 'bg-surface-subtle border-surface-border text-text-main hover:bg-surface-hover'
                     }`}
                   >
-                    {fmt.label}
+                    <span className="font-bold leading-tight">{fmt.label}</span>
+                    <span
+                      className={`text-[10px] leading-tight font-mono ${
+                        selectedFormat === fmt.id ? 'text-accent-contrast/90' : 'text-text-muted'
+                      }`}
+                    >
+                      {fmt.desc}
+                    </span>
                   </button>
                 ))}
               </div>
             </div>
           )}
-        </div>
-      )}
 
-      {/* 4. SCROLLABLE BOTTOM TOOLBAR */}
-      <div className="relative z-30 bg-surface-panel border-t border-surface-border px-3 py-2 overflow-x-auto no-scrollbar shrink-0 text-text-main">
+          {/* F. DEFAULT / NO TOOL ACTIVE: Shifted Page Indicator & Zoom Level (Hidden in sub options) */}
+          {activeTool === 'none' && (
+            <div className="w-full h-full relative flex items-center justify-between px-3 sm:px-6 select-none">
+              {/* Centered Page Number Indicator with Navigation Arrows - Absolutely centered to never move */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="pointer-events-auto flex items-center gap-2 bg-surface-subtle border border-surface-border rounded-control px-2 py-1 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setActiveIndex((prev) => Math.max(0, prev - 1))}
+                    disabled={activeIndex <= 0}
+                    style={{ touchAction: 'manipulation' }}
+                    className="min-w-[32px] min-h-[32px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover hover:text-text-main text-text-muted disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    aria-label="Previous page"
+                    title="Previous page (Left arrow)"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="font-mono text-xs text-text-muted px-1 select-none">
+                    Page <span className="font-bold text-text-main">{Math.min(pages.length, Math.max(1, activeIndex + 1))}</span> / {pages.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveIndex((prev) => Math.min(pages.length - 1, prev + 1))}
+                    disabled={activeIndex >= pages.length - 1}
+                    style={{ touchAction: 'manipulation' }}
+                    className="min-w-[32px] min-h-[32px] inline-flex items-center justify-center rounded-control hover:bg-surface-hover hover:text-text-main text-text-muted disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    aria-label="Next page"
+                    title="Next page (Right arrow)"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Left Spacer to maintain flex layout structure */}
+              <div className="w-28 shrink-0 pointer-events-none" />
+
+              {/* Right: Zoom Level Controller (Fixed width and shape, never shifts or expands, Desktop only) */}
+              <div className="relative z-10 hidden lg:flex items-center justify-end shrink-0">
+                <div className="inline-flex items-center bg-surface-subtle border border-surface-border rounded-control p-0.5 shadow-2xs select-none">
+                  <button
+                    type="button"
+                    onClick={handleZoomOut}
+                    disabled={scale <= 1.0}
+                    className="w-8 h-8 inline-flex items-center justify-center rounded-control text-text-muted hover:text-text-main hover:bg-surface-hover disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer transition-colors shrink-0"
+                    title="Zoom out"
+                    aria-label="Zoom out"
+                  >
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResetFit}
+                    className="font-mono text-xs font-semibold w-14 h-8 flex items-center justify-center text-text-main cursor-pointer hover:text-accent select-none text-center rounded-control transition-colors shrink-0"
+                    title="Click to reset zoom to 100%"
+                    aria-label="Reset zoom to 100%"
+                  >
+                    {Math.round(scale * 100)}%
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleZoomIn}
+                    disabled={scale >= 8.0}
+                    className="w-8 h-8 inline-flex items-center justify-center rounded-control text-text-muted hover:text-text-main hover:bg-surface-hover disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer transition-colors shrink-0"
+                    title="Zoom in"
+                    aria-label="Zoom in"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+      {/* 4. MOBILE SCROLLABLE BOTTOM TOOLBAR (Hidden on desktop) */}
+      <div className="lg:hidden relative z-30 bg-surface-panel border-t border-surface-border px-3 py-2 overflow-x-auto no-scrollbar shrink-0 text-text-main">
         <div className="flex items-center justify-between gap-4 min-w-max px-2">
           {/* 1. Crop */}
           <button
             type="button"
-            onClick={() => setActiveTool((prev) => (prev === 'crop' ? 'none' : 'crop'))}
+            onClick={() => {
+              if (activeTool === 'crop') {
+                handleCancelCrop();
+              } else {
+                setActiveTool('crop');
+              }
+            }}
             style={{ touchAction: 'manipulation' }}
             className={`min-w-[52px] min-h-[44px] flex flex-col items-center justify-center gap-1 rounded-control cursor-pointer transition-colors touch-manipulation ${
               activeTool === 'crop' ? 'text-accent font-semibold' : 'text-text-muted hover:text-text-main'
@@ -2112,7 +2874,14 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
           {/* 4. Filters */}
           <button
             type="button"
-            onClick={() => setActiveTool((prev) => (prev === 'filters' ? 'none' : 'filters'))}
+            onClick={() => {
+              if (activeTool === 'filters') {
+                handleCancelFilters();
+              } else {
+                filterBackupRef.current = activePage?.filter || 'original';
+                setActiveTool('filters');
+              }
+            }}
             style={{ touchAction: 'manipulation' }}
             className={`min-w-[52px] min-h-[44px] flex flex-col items-center justify-center gap-1 rounded-control cursor-pointer transition-colors touch-manipulation ${
               activeTool === 'filters' ? 'text-accent font-semibold' : 'text-text-muted hover:text-text-main'
@@ -2125,7 +2894,15 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
           {/* 5. Adjust */}
           <button
             type="button"
-            onClick={() => setActiveTool((prev) => (prev === 'adjust' ? 'none' : 'adjust'))}
+            onClick={() => {
+              if (activeTool === 'adjust') {
+                handleCancelAdjust();
+              } else {
+                adjustBackupRef.current = { ...(activePage?.adjustments || { brightness: 0, contrast: 0 }) };
+                setAdjustments(adjustBackupRef.current);
+                setActiveTool('adjust');
+              }
+            }}
             style={{ touchAction: 'manipulation' }}
             className={`min-w-[52px] min-h-[44px] flex flex-col items-center justify-center gap-1 rounded-control cursor-pointer transition-colors touch-manipulation ${
               activeTool === 'adjust' ? 'text-accent font-semibold' : 'text-text-muted hover:text-text-main'
@@ -2138,7 +2915,13 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
           {/* 6. Cleanup */}
           <button
             type="button"
-            onClick={() => setActiveTool((prev) => (prev === 'cleanup' ? 'none' : 'cleanup'))}
+            onClick={() => {
+              if (activeTool === 'cleanup') {
+                handleCancelCleanup();
+              } else {
+                setActiveTool('cleanup');
+              }
+            }}
             style={{ touchAction: 'manipulation' }}
             className={`min-w-[52px] min-h-[44px] flex flex-col items-center justify-center gap-1 rounded-control cursor-pointer transition-colors touch-manipulation ${
               activeTool === 'cleanup' ? 'text-accent font-semibold' : 'text-text-muted hover:text-text-main'
@@ -2198,8 +2981,8 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
         </div>
       </div>
 
-      {/* 5. BOTTOM ACTION BAR */}
-      <div className="relative z-30 bg-surface-bg border-t border-surface-border px-3 sm:px-4 py-3 pb-[max(1.25rem,var(--safe-area-bottom))] pl-[max(0.75rem,var(--safe-area-left))] pr-[max(0.75rem,var(--safe-area-right))] flex items-center justify-between gap-2 sm:gap-3 shrink-0 transition-[padding] duration-150">
+      {/* 5. MOBILE BOTTOM ACTION BAR (Hidden on desktop) */}
+      <div className="lg:hidden relative z-30 bg-surface-bg border-t border-surface-border px-3 sm:px-4 py-3 pb-[max(1.25rem,var(--safe-area-bottom))] pl-[max(0.75rem,var(--safe-area-left))] pr-[max(0.75rem,var(--safe-area-right))] flex items-center justify-between gap-2 sm:gap-3 shrink-0 transition-[padding] duration-150">
         <button
           type="button"
           onClick={handleTriggerAddFiles}
@@ -2228,6 +3011,436 @@ export const DocumentEditorModal: React.FC<DocumentEditorModalProps> = ({
           <span className="truncate">Save PDF</span>
         </button>
       </div>
+    </div>
+
+    {/* Desktop Right Side Bar: Main Options + 2 Main Buttons (Add Files & Save PDF) */}
+    <div className="hidden lg:flex flex-col w-72 xl:w-80 border-l border-surface-border bg-surface-panel shrink-0 h-full justify-between select-none z-30">
+      <div className="px-5 py-3.5 border-b border-surface-border shrink-0 flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-sm text-text-main leading-tight">Tools</h3>
+          <p className="text-xs text-text-muted font-mono mt-0.5">
+            Page {activeIndex + 1} of {pages.length}
+          </p>
+        </div>
+        {activeTool !== 'none' && activeTool !== 'reorder' && (
+          <button
+            type="button"
+            onClick={() => {
+              if (activeTool === 'filters') handleCancelFilters();
+              else if (activeTool === 'adjust') handleCancelAdjust();
+              else if (activeTool === 'cleanup') handleCancelCleanup();
+              else if (activeTool === 'crop') handleCancelCrop();
+              else if (activeTool === 'resize') handleCancelResize();
+              else setActiveTool('none');
+            }}
+            className="text-xs font-semibold text-accent hover:underline cursor-pointer"
+          >
+            Close tool
+          </button>
+        )}
+      </div>
+
+      {/* Main Options Grid */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
+        <div className="text-[11px] font-mono font-bold tracking-wider text-text-muted uppercase px-1">
+          Page Options
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {/* 1. Crop */}
+          <button
+            type="button"
+            onClick={() => {
+              if (activeTool === 'crop') {
+                handleCancelCrop();
+              } else {
+                setActiveTool('crop');
+              }
+            }}
+            className={`min-h-[44px] px-3 rounded-control flex items-center gap-2.5 text-xs transition-colors cursor-pointer border ${
+              activeTool === 'crop'
+                ? 'bg-accent/15 text-accent border-accent/40 font-semibold shadow-2xs'
+                : 'bg-surface-subtle hover:bg-surface-hover text-text-main border-surface-border font-medium'
+            }`}
+          >
+            <CropIcon className="w-4 h-4 shrink-0" />
+            <span className="truncate">Crop</span>
+          </button>
+
+          {/* 2. Replace */}
+          <button
+            type="button"
+            onClick={handleTriggerReplace}
+            className="min-h-[44px] px-3 rounded-control flex items-center gap-2.5 text-xs bg-surface-subtle hover:bg-surface-hover text-text-main border border-surface-border font-medium transition-colors cursor-pointer"
+          >
+            <FolderPlus className="w-4 h-4 shrink-0" />
+            <span className="truncate">Replace</span>
+          </button>
+
+          {/* 3. Rotate */}
+          <button
+            type="button"
+            onClick={handleRotate}
+            disabled={isRotating || isProcessing}
+            className="w-full min-h-[44px] px-2.5 rounded-control flex items-center justify-center gap-1.5 text-xs bg-surface-subtle hover:bg-surface-hover text-text-main border border-surface-border font-medium transition-colors cursor-pointer disabled:opacity-50"
+            title="Rotate active page 90° Clockwise"
+          >
+            <RotateCw className={`w-3.5 h-3.5 shrink-0 ${isRotating ? 'animate-spin text-accent' : ''}`} />
+            <span className="truncate">{isRotating ? 'Rotating…' : 'Rotate'}</span>
+          </button>
+
+          {/* 4. Filters */}
+          <button
+            type="button"
+            onClick={() => {
+              if (activeTool === 'filters') {
+                handleCancelFilters();
+              } else {
+                filterBackupRef.current = activePage?.filter || 'original';
+                setActiveTool('filters');
+              }
+            }}
+            className={`min-h-[44px] px-3 rounded-control flex items-center gap-2.5 text-xs transition-colors cursor-pointer border ${
+              activeTool === 'filters'
+                ? 'bg-accent/15 text-accent border-accent/40 font-semibold shadow-2xs'
+                : 'bg-surface-subtle hover:bg-surface-hover text-text-main border-surface-border font-medium'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 shrink-0" />
+            <span className="truncate">Filters</span>
+          </button>
+
+          {/* 5. Adjust */}
+          <button
+            type="button"
+            onClick={() => {
+              if (activeTool === 'adjust') {
+                handleCancelAdjust();
+              } else {
+                adjustBackupRef.current = { ...(activePage?.adjustments || { brightness: 0, contrast: 0 }) };
+                setAdjustments(adjustBackupRef.current);
+                setActiveTool('adjust');
+              }
+            }}
+            className={`min-h-[44px] px-3 rounded-control flex items-center gap-2.5 text-xs transition-colors cursor-pointer border ${
+              activeTool === 'adjust'
+                ? 'bg-accent/15 text-accent border-accent/40 font-semibold shadow-2xs'
+                : 'bg-surface-subtle hover:bg-surface-hover text-text-main border-surface-border font-medium'
+            }`}
+          >
+            <Sliders className="w-4 h-4 shrink-0" />
+            <span className="truncate">Adjust</span>
+          </button>
+
+          {/* 6. Cleanup */}
+          <button
+            type="button"
+            onClick={() => {
+              if (activeTool === 'cleanup') {
+                handleCancelCleanup();
+              } else {
+                setActiveTool('cleanup');
+              }
+            }}
+            className={`min-h-[44px] px-3 rounded-control flex items-center gap-2.5 text-xs transition-colors cursor-pointer border ${
+              activeTool === 'cleanup'
+                ? 'bg-accent/15 text-accent border-accent/40 font-semibold shadow-2xs'
+                : 'bg-surface-subtle hover:bg-surface-hover text-text-main border-surface-border font-medium'
+            }`}
+          >
+            <Eraser className="w-4 h-4 shrink-0" />
+            <span className="truncate">Cleanup</span>
+          </button>
+
+          {/* 7. Resize */}
+          <button
+            type="button"
+            onClick={() => {
+              if (activeTool === 'resize') {
+                handleCancelResize();
+              } else {
+                if (activePage) {
+                  setResizeBackupPage({ ...activePage });
+                  setSelectedFormat(activePage.format || 'fit');
+                }
+                setActiveTool('resize');
+              }
+            }}
+            className={`min-h-[44px] px-3 rounded-control flex items-center gap-2.5 text-xs transition-colors cursor-pointer border ${
+              activeTool === 'resize'
+                ? 'bg-accent/15 text-accent border-accent/40 font-semibold shadow-2xs'
+                : 'bg-surface-subtle hover:bg-surface-hover text-text-main border-surface-border font-medium'
+            }`}
+          >
+            <Maximize2 className="w-4 h-4 shrink-0" />
+            <span className="truncate">Resize</span>
+          </button>
+
+          {/* 8. Reorder */}
+          <button
+            type="button"
+            onClick={() => setActiveTool((prev) => (prev === 'reorder' ? 'none' : 'reorder'))}
+            disabled={pages.length <= 1}
+            className={`min-h-[44px] px-3 rounded-control flex items-center gap-2.5 text-xs transition-colors cursor-pointer border disabled:opacity-40 disabled:cursor-not-allowed ${
+              activeTool === 'reorder'
+                ? 'bg-accent/15 text-accent border-accent/40 font-semibold shadow-2xs'
+                : 'bg-surface-subtle hover:bg-surface-hover text-text-main border-surface-border font-medium'
+            }`}
+          >
+            <Layers className="w-4 h-4 shrink-0" />
+            <span className="truncate">Reorder</span>
+          </button>
+        </div>
+
+        {/* 9. Delete Current Page */}
+        <button
+          type="button"
+          onClick={() => setShowDeleteConfirm(true)}
+          className="w-full min-h-[40px] px-3 rounded-control flex items-center justify-center gap-2 text-xs font-semibold text-status-error hover:bg-status-error-bg border border-transparent hover:border-status-error-border transition-colors cursor-pointer"
+        >
+          <Trash2 className="w-4 h-4 shrink-0" />
+          <span>Delete Page</span>
+        </button>
+      </div>
+
+      {/* Action Buttons: Undo/Redo, Add Files, Save PDF */}
+      <div className="p-4 border-t border-surface-border bg-surface-panel space-y-2.5 shrink-0">
+        {/* Undo & Redo Controls (Hidden when a particular tool is opened) */}
+        {activeTool === 'none' && (
+          <div className="grid grid-cols-2 gap-2 pb-1">
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={!canUndo}
+              className="min-h-[38px] px-3 rounded-control border border-surface-border bg-surface-subtle hover:bg-surface-hover text-text-main font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Undo"
+            >
+              <Undo2 className="w-4 h-4 shrink-0" />
+              <span>Undo</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={!canRedo}
+              className="min-h-[38px] px-3 rounded-control border border-surface-border bg-surface-subtle hover:bg-surface-hover text-text-main font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Redo"
+            >
+              <Redo2 className="w-4 h-4 shrink-0" />
+              <span>Redo</span>
+            </button>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={handleTriggerAddFiles}
+          className="w-full min-h-[42px] px-3 rounded-control border border-surface-border bg-surface-subtle hover:bg-surface-hover text-text-main font-semibold text-sm flex items-center justify-center gap-2 cursor-pointer transition-colors"
+        >
+          <FolderPlus className="w-4 h-4 shrink-0" />
+          <span>Add Files</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleSavePdf}
+          disabled={isProcessing}
+          className="w-full min-h-[44px] px-4 rounded-control bg-accent hover:bg-accent-hover text-accent-contrast font-bold text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-sm disabled:bg-surface-disabled disabled:text-text-disabled"
+        >
+          {isProcessing ? (
+            <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+          ) : (
+            <FileDown className="w-4 h-4 shrink-0" />
+          )}
+          <span>Save PDF</span>
+        </button>
+      </div>
+    </div>
+
+    {/* FULL-SCREEN REORDER OVERLAY */}
+    {activeTool === 'reorder' && (
+      <div className="absolute inset-0 z-50 bg-surface-bg text-text-main flex flex-col justify-between overflow-hidden animate-in fade-in duration-150">
+        {/* Top Bar: Title Left, Cancel + Done Right (Consistent with other sub-panels) */}
+        <div className="relative z-10 px-4 py-3 pt-[max(0.75rem,var(--safe-area-top))] pl-[max(1rem,var(--safe-area-left))] pr-[max(1rem,var(--safe-area-right))] flex items-center justify-between border-b border-surface-border bg-surface-panel shrink-0">
+          <div className="flex items-center gap-2">
+            <Layers className="w-5 h-5 text-accent" />
+            <h2 className="text-base font-bold text-text-main">
+              Reorder Pages <span className="text-xs font-normal text-text-muted">({reorderPages.length})</span>
+            </h2>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCancelReorder}
+              className="h-8 px-3 rounded-control text-xs font-medium text-text-muted hover:text-text-main bg-surface-subtle hover:bg-surface-hover border border-surface-border transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmReorder}
+              className="h-8 px-4 rounded-control text-xs font-bold text-accent-contrast bg-accent hover:bg-accent-hover shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Done</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Reorder Instruction Banner */}
+        <div className="bg-surface-subtle/80 border-b border-surface-border px-4 py-2 text-center text-xs text-text-muted select-none flex items-center justify-center gap-1.5">
+          <span>Drag cards to reorder, or use the</span>
+          <ChevronLeft className="w-3.5 h-3.5 inline text-text-main" />
+          <span>and</span>
+          <ChevronRight className="w-3.5 h-3.5 inline text-text-main" />
+          <span>move buttons below each page.</span>
+        </div>
+
+        {/* 2-Column Scrollable Grid */}
+        <div
+          onTouchMove={moveTouchDrag}
+          onTouchEnd={endTouchDrag}
+          onTouchCancel={endTouchDrag}
+          className="flex-1 min-h-0 overflow-y-auto p-6 sm:p-8 select-none"
+        >
+          {/* Floating Dragged Card Follower (for mobile touch drag) */}
+          {draggedPageIndex !== null && touchDragPos !== null && reorderPages[draggedPageIndex] && (
+            <div
+              style={{
+                left: `${touchDragPos.x}px`,
+                top: `${touchDragPos.y}px`,
+                transform: 'translate(-50%, -50%) scale(1.08)',
+              }}
+              className="fixed z-50 pointer-events-none w-36 aspect-[1/1.414] bg-white rounded-lg shadow-2xl border-2 border-accent overflow-hidden opacity-95 transition-none"
+            >
+              <img
+                src={reorderPages[draggedPageIndex].displayUrl}
+                className="w-full h-full object-contain pointer-events-none"
+                alt="Dragging preview"
+              />
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-4 sm:gap-6 w-full max-w-[1800px] mx-auto px-2 sm:px-4">
+            {reorderPages.map((p, idx) => {
+              const isBeingDragged = draggedPageIndex === idx;
+              const isDragTarget = dragOverPageIndex === idx;
+              const isSelectedForSwap = selectedSwapIndex === idx;
+
+              return (
+                <div
+                  key={p.id}
+                  data-reorder-index={idx}
+                  draggable={true}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('text/plain', String(idx));
+                    setDraggedPageIndex(idx);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOverPageIndex !== idx) {
+                      setDragOverPageIndex(idx);
+                    }
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverPageIndex === idx) {
+                      setDragOverPageIndex(null);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const fromStr = e.dataTransfer.getData('text/plain');
+                    const from = fromStr !== '' ? parseInt(fromStr, 10) : draggedPageIndex;
+                    if (from !== null && from !== undefined && !isNaN(from) && from !== idx) {
+                      handleMoveReorderPage(from, idx);
+                    }
+                    setDraggedPageIndex(null);
+                    setDragOverPageIndex(null);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedPageIndex(null);
+                    setDragOverPageIndex(null);
+                  }}
+                  onClick={() => {
+                    if (draggedPageIndex !== null) return;
+                    if (selectedSwapIndex === null) {
+                      setSelectedSwapIndex(idx);
+                    } else if (selectedSwapIndex === idx) {
+                      setSelectedSwapIndex(null);
+                    } else {
+                      handleMoveReorderPage(selectedSwapIndex, idx);
+                      setSelectedSwapIndex(null);
+                    }
+                  }}
+                  onTouchStart={(e) => startTouchHold(idx, e)}
+                  className="relative flex flex-col items-center cursor-grab active:cursor-grabbing select-none"
+                >
+                  <div
+                    className={`w-full aspect-[1/1.414] bg-white rounded-none overflow-hidden border transition-all flex items-center justify-center ${
+                      isBeingDragged
+                        ? 'opacity-40 border-2 border-accent shadow-lifted scale-95'
+                        : isDragTarget && draggedPageIndex !== null && draggedPageIndex !== idx
+                        ? 'border-accent ring-2 ring-accent shadow-lifted z-20 scale-105'
+                        : isSelectedForSwap
+                        ? 'ring-2 ring-accent border-accent shadow-lifted'
+                        : 'border-surface-border hover:border-text-muted shadow-sm'
+                    }`}
+                  >
+                    <img
+                      src={p.displayUrl}
+                      alt={`Page ${idx + 1}`}
+                      className="w-full h-full object-contain pointer-events-none"
+                      draggable={false}
+                    />
+                  </div>
+
+                  {/* Move Left / Right Buttons and Page Indicator */}
+                  <div className="mt-2.5 flex items-center justify-between w-full max-w-[150px] px-1">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMoveReorderPage(idx, idx - 1);
+                      }}
+                      disabled={idx === 0}
+                      className="w-7 h-7 rounded-full bg-surface-subtle hover:bg-surface-hover border border-surface-border flex items-center justify-center text-text-main disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                      title="Move left"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+
+                    <span className="text-xs font-mono font-bold text-text-main">
+                      #{idx + 1}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMoveReorderPage(idx, idx + 1);
+                      }}
+                      disabled={idx === reorderPages.length - 1}
+                      className="w-7 h-7 rounded-full bg-surface-subtle hover:bg-surface-hover border border-surface-border flex items-center justify-center text-text-main disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                      title="Move right"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {isDragTarget && draggedPageIndex !== null && draggedPageIndex !== idx && (
+                    <div className="absolute -top-2.5 px-2.5 py-0.5 rounded-chip bg-accent text-accent-contrast text-xs font-mono font-semibold shadow-lifted pointer-events-none">
+                      Drop #{idx + 1}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
 
       {/* DISCARD SCAN CONFIRMATION WARNING MODAL */}
       {showDiscardConfirm && (
