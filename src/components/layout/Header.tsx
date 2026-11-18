@@ -127,12 +127,15 @@ export const Header: React.FC<HeaderProps> = ({
           {isOnlineMode ? (
             <a
               href={websiteHref}
-              className="inline-flex items-center justify-center gap-1.5 h-9 sm:h-[38px] px-3 rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle text-text-main text-xs font-semibold transition-colors duration-fast ease-out cursor-pointer shrink-0 shadow-2xs"
+              className="inline-flex items-center justify-center gap-1.5 h-9 sm:h-[38px] px-2.5 sm:px-3 rounded-control border border-surface-border bg-surface-bg hover:bg-surface-subtle text-text-main text-xs font-semibold transition-colors duration-fast ease-out cursor-pointer shrink-0 shadow-2xs"
               aria-label="Back to website"
               title="Back to Paperweight website"
             >
-              <ArrowLeft className="w-4 h-4 text-text-muted shrink-0" />
-              <span>Back to website</span>
+              <ArrowLeft className="w-3.5 h-3.5 text-text-muted shrink-0" />
+              <span>
+                <span className="sm:hidden">Website</span>
+                <span className="hidden sm:inline">Back to website</span>
+              </span>
             </a>
           ) : (
             (!isMobile || !canGoBack) && onOpenSettings && (

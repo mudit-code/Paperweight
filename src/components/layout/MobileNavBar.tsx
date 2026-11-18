@@ -11,6 +11,7 @@ export interface MobileNavBarProps {
   activeToolId: string;
   onSelectTool: (toolId: string) => void;
   onOpenScan: () => void;
+  isOnlineMode?: boolean;
   isScanningOrEditing?: boolean;
   isKeyboardOpen?: boolean;
   className?: string;
@@ -34,6 +35,7 @@ export const MobileNavBar: React.FC<MobileNavBarProps> = ({
   activeToolId,
   onSelectTool,
   onOpenScan,
+  isOnlineMode = false,
   isScanningOrEditing = false,
   isKeyboardOpen = false,
   className = '',
@@ -42,6 +44,10 @@ export const MobileNavBar: React.FC<MobileNavBarProps> = ({
     return null;
   }
 
+  const tabs = isOnlineMode
+    ? NAV_TABS.filter((tab) => tab.id !== 'scans')
+    : NAV_TABS;
+
   return (
     <nav
       aria-label="Mobile Navigation Bar"
@@ -49,7 +55,7 @@ export const MobileNavBar: React.FC<MobileNavBarProps> = ({
         isKeyboardOpen ? 'translate-y-full pointer-events-none' : 'translate-y-0'
       } ${className}`}
     >
-      {NAV_TABS.map((tab) => {
+      {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = activeToolId === tab.id;
 

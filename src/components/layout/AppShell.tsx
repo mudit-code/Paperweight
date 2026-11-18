@@ -1487,8 +1487,8 @@ export const AppShell: React.FC = () => {
         className="hidden"
       />
 
-      {/* Mobile Bottom Navigation Bar (Visible on mobile devices < lg, NEVER on desktop apps, hidden in Online Mode) */}
-      {!isOnlineMode && isMobile && (
+      {/* Mobile Bottom Navigation Bar (Visible on mobile devices < lg, NEVER on desktop Electron app) */}
+      {isMobile && (
         <MobileNavBar
           activeToolId={activeToolId}
           onSelectTool={(id) => {
@@ -1502,6 +1502,7 @@ export const AppShell: React.FC = () => {
             setRetakeIndex(null);
             setIsCameraOpen(true);
           }}
+          isOnlineMode={isOnlineMode}
           isScanningOrEditing={isCameraOpen || isEditorOpen}
           isKeyboardOpen={isKeyboardOpen}
         />
