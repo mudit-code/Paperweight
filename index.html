@@ -82,13 +82,16 @@
         }
 
         try {
-          var saved = localStorage.getItem('paperweight-theme');
+          var urlParams = new URLSearchParams(window.location.search);
+          var urlTheme = urlParams.get('theme');
+          var saved = (urlTheme === 'light' || urlTheme === 'dark') ? urlTheme : localStorage.getItem('paperweight-theme');
+          if (urlTheme === 'light' || urlTheme === 'dark') {
+            try { localStorage.setItem('paperweight-theme', urlTheme); } catch(e) {}
+          }
           var systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
           var theme = saved === 'light' || saved === 'dark'
             ? saved
-            : saved === 'system'
-            ? (systemDark ? 'dark' : 'light')
-            : 'dark';
+            : (systemDark ? 'dark' : 'light');
           var isDark = theme === 'dark';
           if (isDark) {
             document.documentElement.classList.add('dark');
