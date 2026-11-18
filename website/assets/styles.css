@@ -100,7 +100,7 @@ html, body {
 
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 68px;
+  scroll-padding-top: 56px;
   background-color: var(--bg-page);
   color: var(--text-main);
 }
@@ -134,7 +134,7 @@ a {
 }
 
 main {
-  padding-top: 68px;
+  padding-top: 56px;
 }
 
 .container {
@@ -184,11 +184,11 @@ main {
   background: var(--gold-accent);
   color: var(--text-on-gold);
   border: 1px solid var(--gold-accent);
-  padding: 0 18px;
-  border-radius: 10px;
-  font-size: 14px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 13.5px;
   font-weight: 600;
-  height: 38px;
+  height: 34px;
   box-sizing: border-box;
 }
 
@@ -299,7 +299,7 @@ main {
 }
 
 .header-inner {
-  height: 68px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -308,20 +308,20 @@ main {
 .brand-link {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-shrink: 0;
 }
 
 .brand-logo-svg {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: block;
   flex-shrink: 0;
-  border-radius: 8px;
+  border-radius: 7px;
 }
 
 .brand-name {
-  font-size: 21px;
+  font-size: 19px;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--text-main);
@@ -330,18 +330,18 @@ main {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 18px;
   flex-shrink: 0;
 }
 
 .header-nav {
   display: flex;
   align-items: center;
-  gap: 28px;
+  gap: 24px;
 }
 
 .header-link {
-  font-size: 15px;
+  font-size: 14px;
   color: var(--text-body);
   transition: color 0.15s ease;
 }
@@ -354,8 +354,8 @@ main {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   border: 1px solid var(--border-hairline);
   background: var(--bg-card);
@@ -371,8 +371,8 @@ main {
 }
 
 .theme-toggle-btn svg {
-  width: 19px;
-  height: 19px;
+  width: 16px;
+  height: 16px;
 }
 
 :root[data-theme="dark"] .theme-toggle-btn .icon-moon {
@@ -802,11 +802,11 @@ main {
 
 @media (max-width: 960px) {
   html {
-    scroll-padding-top: 60px;
+    scroll-padding-top: 52px;
   }
 
   main {
-    padding-top: 60px;
+    padding-top: 52px;
   }
 
   .container {
@@ -814,7 +814,7 @@ main {
   }
 
   .header-inner {
-    height: 60px;
+    height: 52px;
   }
 
   .header-nav {
@@ -916,11 +916,11 @@ main {
 
 @media (max-width: 600px) {
   html {
-    scroll-padding-top: 56px;
+    scroll-padding-top: 48px;
   }
 
   main {
-    padding-top: 56px;
+    padding-top: 48px;
   }
 
   .container {
@@ -928,18 +928,23 @@ main {
   }
 
   .header-inner {
-    height: 56px;
+    height: 48px;
   }
 
   .brand-name {
-    font-size: 19px;
+    font-size: 17.5px;
+  }
+
+  .brand-logo-svg {
+    width: 24px;
+    height: 24px;
   }
 
   .btn-pill-nav {
-    padding: 0 14px;
-    font-size: 13px;
-    border-radius: 9px;
-    height: 34px;
+    padding: 0 12px;
+    font-size: 12.5px;
+    border-radius: 7px;
+    height: 30px;
   }
 
   .hero-section {
