@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
+import fs from 'fs';
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -16,6 +17,30 @@ export default defineConfig({
     include: ['react', 'react-dom', 'pdf-lib', 'jszip', 'upng-js'],
   },
   plugins: [
+    {
+      name: 'serve-website-static-assets',
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          if (req.url && req.url.startsWith('/website/')) {
+            const cleanUrl = req.url.split('?')[0];
+            const filePath = path.resolve(__dirname, '.' + cleanUrl);
+            if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+              if (cleanUrl.endsWith('.css')) {
+                res.setHeader('Content-Type', 'text/css');
+                res.end(fs.readFileSync(filePath));
+                return;
+              }
+              if (cleanUrl.endsWith('.woff2')) {
+                res.setHeader('Content-Type', 'font/woff2');
+                res.end(fs.readFileSync(filePath));
+                return;
+              }
+            }
+          }
+          next();
+        });
+      },
+    },
     react(),
     VitePWA({
       registerType: 'prompt', // Prompt-based service worker update flow

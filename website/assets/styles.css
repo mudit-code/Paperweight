@@ -317,18 +317,8 @@ a {
   border-radius: 6px;
   padding: 1px 12px;
   display: inline-block;
-}
-
-.hl-desktop-mobile {
-  display: inline-block;
-}
-
-.hl-tablet {
-  display: none;
-}
-
-.br-tablet {
-  display: none;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .br-mobile {
@@ -724,16 +714,7 @@ a {
     display: none;
   }
 
-  .br-tablet {
-    display: block;
-  }
-
-  .hl-desktop-mobile {
-    display: none;
-  }
-
-  .hl-tablet {
-    display: inline-block;
+  .highlight-box {
     padding: 1px 10px;
   }
 
@@ -844,13 +825,8 @@ a {
     display: block;
   }
 
-  .hl-desktop-mobile {
-    display: inline-block;
+  .highlight-box {
     padding: 1px 8px;
-  }
-
-  .hl-tablet {
-    display: none;
   }
 
   .hero-subtitle {

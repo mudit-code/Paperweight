@@ -7,6 +7,1018 @@
   <meta name="description" content="Scan, compress, resize, merge and convert PDFs and photos. Everything runs on your phone or PC, with no cloud and no sign-up.">
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
   <link rel="stylesheet" href="assets/styles.css">
+
+<style>
+/* ==========================================================================
+   Paperweight Official Website Stylesheet
+   Warm Paper Light Editorial Theme
+   Responsive for Desktop (1440px), Tablet (820px), and Mobile (390px)
+   ========================================================================== */
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('assets/space-grotesk-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('assets/space-grotesk-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('assets/space-grotesk-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  color-scheme: light;
+  --font-sans: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Palette */
+  --bg-page: #f7f5f0;
+  --bg-card: #ffffff;
+  --bg-privacy: #1a1a18;
+
+  --text-main: #1a1a18;
+  --text-body: #59554d;
+  --text-muted: #787368;
+  --text-eyebrow: #7d6e27;
+
+  --gold-accent: #f2cf45;
+  --gold-hover: #e8c433;
+
+  --border-hairline: #e5e0d5;
+  --border-button: #d5d0c5;
+  --border-privacy: #2e2d29;
+
+  --status-green: #27ae60;
+  --card-shadow: 0 16px 40px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+html {
+  scroll-behavior: smooth;
+  background-color: var(--bg-page);
+  color: var(--text-main);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--bg-page);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--gold-accent);
+  outline-offset: 3px;
+}
+
+.site-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.container {
+  width: 100%;
+  max-width: 1248px;
+  margin: 0 auto;
+  padding: 0 96px;
+}
+
+/* ==========================================================================
+   Typography & Shared Elements
+   ========================================================================== */
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-eyebrow);
+}
+
+.section-heading {
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--text-main);
+  margin: 8px 0 44px 0;
+  line-height: 1.15;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  border: none;
+}
+
+.btn-pill-nav {
+  background: var(--gold-accent);
+  color: var(--text-main);
+  padding: 10px 24px;
+  border-radius: 9999px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.btn-pill-nav:hover {
+  background: var(--gold-hover);
+}
+
+.btn-primary {
+  background: var(--gold-accent);
+  color: var(--text-main);
+  padding: 15px 36px;
+  border-radius: 12px;
+  font-size: 16px;
+}
+
+.btn-primary:hover {
+  background: var(--gold-hover);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--text-main);
+  padding: 15px 36px;
+  border-radius: 12px;
+  border: 1px solid var(--border-button);
+  font-size: 16px;
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: var(--text-main);
+}
+
+.btn-download {
+  background: var(--gold-accent);
+  color: var(--text-main);
+  padding: 14px 30px;
+  border-radius: 12px;
+  font-size: 15px;
+}
+
+.btn-download:hover {
+  background: var(--gold-hover);
+}
+
+.btn-copy {
+  background: var(--bg-card);
+  border: 1px solid var(--border-button);
+  border-radius: 8px;
+  padding: 6px 18px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.btn-copy:hover {
+  background: #fdfdfc;
+  border-color: var(--text-main);
+}
+
+/* ==========================================================================
+   Header Navigation
+   ========================================================================== */
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(247, 245, 240, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: background-color 0.2s ease;
+}
+
+.header-inner {
+  height: 92px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.brand-icon {
+  width: 28px;
+  height: 28px;
+  background: var(--gold-accent);
+  border-radius: 8px;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.brand-name {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 36px;
+  flex-shrink: 0;
+}
+
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.header-link {
+  font-size: 15px;
+  color: var(--text-body);
+  transition: color 0.15s ease;
+}
+
+.header-link:hover {
+  color: var(--text-main);
+}
+
+/* ==========================================================================
+   Hero Section
+   ========================================================================== */
+
+.hero-section {
+  padding: 68px 0 96px 0;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  align-items: center;
+  gap: 56px;
+}
+
+.hero-copy {
+  display: flex;
+  flex-direction: column;
+}
+
+.hero-title {
+  font-size: 64px;
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  color: var(--text-main);
+  margin: 14px 0 0 0;
+}
+
+.highlight-box {
+  background: var(--gold-accent);
+  color: var(--text-main);
+  border-radius: 6px;
+  padding: 1px 12px;
+  display: inline-block;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.br-mobile {
+  display: none;
+}
+
+.br-desktop {
+  display: block;
+}
+
+.hero-subtitle {
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--text-body);
+  max-width: 460px;
+  margin: 24px 0 0 0;
+}
+
+.hero-cta-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 36px;
+}
+
+/* Hero Widget: Compress Card */
+.hero-widget-wrap {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.compress-card {
+  width: 100%;
+  max-width: 440px;
+  background: var(--bg-card);
+  border-radius: 20px;
+  padding: 28px 32px;
+  box-shadow: var(--card-shadow);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.card-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  color: #6e6a60;
+  text-transform: uppercase;
+}
+
+.card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-green);
+  display: inline-block;
+}
+
+.status-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: #6e6a60;
+}
+
+.card-file-info {
+  margin-top: 22px;
+}
+
+.card-filename {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.card-filesize {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: #6e6a60;
+  margin-top: 6px;
+}
+
+.card-progress-track {
+  width: 100%;
+  height: 8px;
+  background: #efece4;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 22px 0 16px 0;
+}
+
+.card-progress-fill {
+  height: 100%;
+  background: var(--gold-accent);
+  border-radius: 4px;
+}
+
+.card-bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  color: var(--text-body);
+}
+
+.stat-highlight {
+  font-weight: 500;
+}
+
+.stat-caption {
+  color: #6e6a60;
+}
+
+/* ==========================================================================
+   Features Section: "Five jobs, one app."
+   ========================================================================== */
+
+.features-section {
+  padding: 80px 0 100px 0;
+}
+
+.features-list {
+  border-top: 1px solid var(--border-hairline);
+}
+
+.feature-item {
+  display: flex;
+  align-items: baseline;
+  gap: 24px;
+  padding: 32px 0;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.feature-num {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  color: var(--text-muted);
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.feature-title {
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--text-main);
+  width: 260px;
+  flex-shrink: 0;
+}
+
+.feature-desc {
+  font-size: 15.5px;
+  line-height: 1.6;
+  color: var(--text-body);
+  flex: 1;
+}
+
+/* ==========================================================================
+   Privacy Section
+   ========================================================================== */
+
+.privacy-section {
+  padding: 40px 0 100px 0;
+}
+
+.privacy-card {
+  background: var(--bg-privacy);
+  border-radius: 24px;
+  padding: 64px 72px;
+  color: #ffffff;
+}
+
+.privacy-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  color: #8a867e;
+  text-transform: uppercase;
+}
+
+.privacy-heading {
+  font-size: 42px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  margin: 14px 0 0 0;
+}
+
+.highlight-gold {
+  color: var(--gold-accent);
+}
+
+.privacy-body {
+  font-size: 17px;
+  line-height: 1.6;
+  color: #b8b4aa;
+  max-width: 700px;
+  margin: 22px 0 0 0;
+}
+
+.privacy-divider {
+  width: 100%;
+  height: 1px;
+  background: var(--border-privacy);
+  margin: 52px 0 26px 0;
+}
+
+.privacy-badges {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: #8a867e;
+  letter-spacing: 0.04em;
+}
+
+/* ==========================================================================
+   Download Section
+   ========================================================================== */
+
+.download-section {
+  padding: 40px 0 80px 0;
+}
+
+.download-list {
+  border-top: 1px solid var(--border-hairline);
+}
+
+.download-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+  padding: 30px 0;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.download-platform-col {
+  width: 180px;
+  flex-shrink: 0;
+}
+
+.platform-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.platform-sub {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.download-meta-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.meta-version {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.hash-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.hash-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #38352e;
+  min-width: 0;
+}
+
+.hash-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.hash-value {
+  color: #38352e;
+  word-break: break-all;
+  min-width: 0;
+}
+
+.download-action-col {
+  flex-shrink: 0;
+}
+
+.download-notice {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  max-width: 620px;
+  margin: 36px 0 0 0;
+}
+
+/* ==========================================================================
+   Footer
+   ========================================================================== */
+
+.site-footer {
+  padding: 48px 0 64px 0;
+}
+
+.footer-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  color: var(--text-body);
+}
+
+.footer-credit {
+  color: var(--text-muted);
+}
+
+.footer-links {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.footer-links a {
+  color: var(--text-body);
+  transition: color 0.15s ease;
+}
+
+.footer-links a:hover {
+  color: var(--text-main);
+}
+
+/* ==========================================================================
+   Responsive Breakpoints: Tablet (820px)
+   ========================================================================== */
+
+@media (max-width: 960px) {
+  .container {
+    padding: 0 48px;
+  }
+
+  .header-inner {
+    height: 84px;
+  }
+
+  .header-nav {
+    display: none;
+  }
+
+  .header-right {
+    gap: 0;
+  }
+
+  .hero-section {
+    padding: 48px 0 70px 0;
+  }
+
+  .hero-grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+
+  .hero-title {
+    font-size: 58px;
+    line-height: 1.1;
+  }
+
+  .br-desktop {
+    display: none;
+  }
+
+  .highlight-box {
+    padding: 1px 10px;
+  }
+
+  .hero-widget-wrap {
+    justify-content: flex-start;
+  }
+
+  .compress-card {
+    max-width: 100%;
+  }
+
+  .feature-item {
+    padding: 26px 0;
+    gap: 16px;
+  }
+
+  .feature-num {
+    width: 60px;
+  }
+
+  .feature-title {
+    width: 220px;
+  }
+
+  .privacy-card {
+    padding: 48px 44px;
+  }
+
+  .privacy-heading {
+    font-size: 34px;
+  }
+
+  .privacy-badges {
+    gap: 28px;
+  }
+
+  .download-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    row-gap: 18px;
+    padding: 26px 0;
+  }
+
+  .download-platform-col {
+    width: auto;
+  }
+
+  .download-action-col {
+    justify-self: end;
+  }
+
+  .download-meta-col {
+    grid-column: 1 / -1;
+  }
+
+  .site-footer {
+    padding: 40px 0 56px 0;
+  }
+
+  .footer-inner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+}
+
+/* ==========================================================================
+   Responsive Breakpoints: Mobile (390px)
+   ========================================================================== */
+
+@media (max-width: 600px) {
+  .container {
+    padding: 0 22px;
+  }
+
+  .header-inner {
+    height: 76px;
+  }
+
+  .brand-name {
+    font-size: 19px;
+  }
+
+  .btn-pill-nav {
+    padding: 8px 18px;
+    font-size: 13.5px;
+  }
+
+  .hero-section {
+    padding: 32px 0 54px 0;
+  }
+
+  .hero-title {
+    font-size: 40px;
+    line-height: 1.1;
+    letter-spacing: -0.025em;
+  }
+
+  .br-desktop {
+    display: none;
+  }
+
+  .br-tablet {
+    display: none;
+  }
+
+  .br-mobile {
+    display: block;
+  }
+
+  .highlight-box {
+    padding: 1px 8px;
+  }
+
+  .hero-subtitle {
+    font-size: 16px;
+    margin-top: 18px;
+  }
+
+  .hero-cta-group {
+    flex-direction: column;
+    width: 100%;
+    gap: 12px;
+    margin-top: 28px;
+  }
+
+  .btn-primary,
+  .btn-secondary {
+    width: 100%;
+    padding: 14px 20px;
+    font-size: 15px;
+    border-radius: 12px;
+  }
+
+  /* Compress widget is hidden in Mobile hero matching Mobile · 390.png */
+  .hero-widget-wrap {
+    display: none;
+  }
+
+  .section-heading {
+    font-size: 32px;
+    margin-bottom: 32px;
+  }
+
+  .features-section {
+    padding: 40px 0 56px 0;
+  }
+
+  .feature-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 20px 0;
+  }
+
+  .feature-num {
+    display: inline-block;
+    width: auto;
+    margin-right: 12px;
+  }
+
+  .feature-title {
+    width: auto;
+    font-size: 19px;
+    display: inline;
+  }
+
+  .feature-desc {
+    font-size: 14.5px;
+    line-height: 1.55;
+    margin-top: 4px;
+  }
+
+  .privacy-section {
+    padding: 32px 0 56px 0;
+  }
+
+  .privacy-card {
+    padding: 34px 24px;
+    border-radius: 20px;
+  }
+
+  .privacy-heading {
+    font-size: 26px;
+    line-height: 1.25;
+  }
+
+  .privacy-body {
+    font-size: 14.5px;
+    line-height: 1.6;
+    margin-top: 16px;
+  }
+
+  .privacy-divider {
+    margin: 32px 0 20px 0;
+  }
+
+  .privacy-badges {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 11.5px;
+  }
+
+  .download-section {
+    padding: 32px 0 50px 0;
+  }
+
+  .download-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 22px 0;
+  }
+
+  .platform-title {
+    font-size: 20px;
+  }
+
+  .download-meta-col {
+    width: 100%;
+  }
+
+  .hash-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .hash-box {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.45;
+    color: #38352e;
+    word-break: break-all;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .hash-label {
+    display: inline;
+    color: var(--text-muted);
+    margin-right: 6px;
+  }
+
+  .hash-value {
+    display: inline;
+    color: #38352e;
+  }
+
+  .btn-copy {
+    align-self: center;
+    flex-shrink: 0;
+    padding: 6px 14px;
+    font-size: 12px;
+  }
+
+  .download-action-col {
+    width: 100%;
+  }
+
+  .btn-download {
+    width: 100%;
+    padding: 13px 20px;
+    border-radius: 12px;
+  }
+
+  .download-notice {
+    font-size: 13px;
+    margin-top: 24px;
+  }
+
+  .site-footer {
+    padding: 32px 0 48px 0;
+  }
+
+  .footer-inner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .footer-links {
+    flex-wrap: wrap;
+    gap: 18px;
+  }
+}
+
+</style>
 </head>
 <body>
   <div class="site-shell">
@@ -38,9 +1050,7 @@
             <div class="eyebrow">OFFLINE · NO ACCOUNT</div>
             <h1 class="hero-title">
               Your documents<br class="br-desktop br-mobile">
-              <span class="hl-desktop-mobile highlight-box">never leave</span>
-              <span class="hl-tablet highlight-box">never</span><br class="br-tablet"><span class="hl-tablet highlight-box">leave</span>
-              your<br class="br-desktop br-mobile">
+              <span class="highlight-box">never leave</span> your<br class="br-desktop br-mobile">
               device.
             </h1>
             <p class="hero-subtitle">
