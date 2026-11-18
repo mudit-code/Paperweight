@@ -24,6 +24,7 @@ export interface SidebarProps {
   onSelectTool: (id: string) => void;
   isOpenMobile?: boolean;
   onCloseMobile?: () => void;
+  isOnlineMode?: boolean;
 }
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -53,6 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectTool,
   isOpenMobile = false,
   onCloseMobile,
+  isOnlineMode = false,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(() => {
     try {
@@ -72,7 +74,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   };
 
-  const displayTools = isMobileApp()
+  const displayTools = isOnlineMode
+    ? tools.filter((t) => t.id !== 'scanner' && t.id !== 'scans')
+    : isMobileApp()
     ? tools
     : tools.filter((t) => t.id !== 'scanner' && t.id !== 'scans');
 
@@ -144,7 +148,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         aria-label="Available document and image tools"
         className="flex-1 overflow-y-auto p-2 space-y-1"
       >
-        {!isMobileApp() && (
+        {!isMobileApp() && !isOnlineMode && (
           <button
             type="button"
             onClick={() => handleSelectTool('scans')}

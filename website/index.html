@@ -1246,6 +1246,13 @@ a {
       });
     });
 
+    // Dynamically adjust Use Online links when running directly in local Vite dev server (port 5173)
+    if (window.location.port === '5173' && !window.location.pathname.includes('/app')) {
+      document.querySelectorAll('a[href*="app/?mode=online"]').forEach(function (link) {
+        link.setAttribute('href', '/?mode=online');
+      });
+    }
+
     function fallbackCopy(text, btn) {
       var textarea = document.createElement('textarea');
       textarea.value = text;

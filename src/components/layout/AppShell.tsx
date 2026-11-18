@@ -110,11 +110,20 @@ export const AppShell: React.FC = () => {
   const [tools, setTools] = useState<ToolManifest[]>(() => toolRegistry.getAll());
   const [activeToolId, setActiveToolId] = useState<string>(() => {
     if (onlineConfig.isOnlineMode) {
-      return onlineConfig.targetTool || 'image-resizer';
+      if (onlineConfig.targetTool && onlineConfig.targetTool !== 'scans' && onlineConfig.targetTool !== 'scanner') {
+        return onlineConfig.targetTool;
+      }
+      return 'converter';
     }
     return 'scans';
   });
-  const previousToolIdRef = useRef<string>(onlineConfig.isOnlineMode ? (onlineConfig.targetTool || 'image-resizer') : 'scans');
+  const previousToolIdRef = useRef<string>(
+    onlineConfig.isOnlineMode
+      ? (onlineConfig.targetTool && onlineConfig.targetTool !== 'scans' && onlineConfig.targetTool !== 'scanner'
+          ? onlineConfig.targetTool
+          : 'converter')
+      : 'scans'
+  );
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState<boolean>(false);
   const [isOptionsOpenMobile, setIsOptionsOpenMobile] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
@@ -822,8 +831,8 @@ export const AppShell: React.FC = () => {
   };
 
   const requestSelectTool = (targetId: string) => {
-    if (isOnlineMode) {
-      // In online mode, lock strictly to the mode chosen on the downloader website
+    if (isOnlineMode && (targetId === 'scans' || targetId === 'scanner')) {
+      // Scans is not available in online mode
       return;
     }
     if (targetId === activeToolId) return;
@@ -1203,16 +1212,15 @@ export const AppShell: React.FC = () => {
     <div className="fixed inset-0 flex flex-col h-full w-full overflow-hidden bg-surface-bg text-text-main font-sans">
       {/* Main Workspace Frame */}
       <div className="flex flex-1 overflow-hidden min-h-0 relative">
-        {/* Left Persistent Tools Sidebar (Hidden in online mode to lock chosen tool) */}
-        {!isOnlineMode && (
-          <Sidebar
-            tools={tools}
-            activeToolId={activeToolId}
-            onSelectTool={requestSelectTool}
-            isOpenMobile={isSidebarOpenMobile}
-            onCloseMobile={() => setIsSidebarOpenMobile(false)}
-          />
-        )}
+        {/* Left Persistent Tools Sidebar */}
+        <Sidebar
+          tools={tools}
+          activeToolId={activeToolId}
+          onSelectTool={requestSelectTool}
+          isOpenMobile={isSidebarOpenMobile}
+          onCloseMobile={() => setIsSidebarOpenMobile(false)}
+          isOnlineMode={isOnlineMode}
+        />
 
         {/* Right Column: Top Header + Workspace Canvas (Hidden during full-screen camera/editor scanning) */}
         <div className={`flex-1 flex flex-col min-w-0 h-full overflow-hidden ${isScanningOrEditing ? 'hidden' : ''}`}>
@@ -1223,7 +1231,7 @@ export const AppShell: React.FC = () => {
               hasOptionsPanel={shouldShowOptionsPanel}
               isOnlineMode={isOnlineMode}
               onOpenSettings={isOnlineMode ? undefined : () => setIsSettingsOpen(true)}
-              onToggleSidebar={isOnlineMode || isMobileApp() ? undefined : () => setIsSidebarOpenMobile(true)}
+              onToggleSidebar={isMobileApp() ? undefined : () => setIsSidebarOpenMobile(true)}
               canGoBack={canGoBack}
               onBack={handleHeaderBack}
               backTooltip={
@@ -1296,9 +1304,9 @@ export const AppShell: React.FC = () => {
                 onCancel={handleCancel}
                 selectedFileId={selectedFileId}
                 onSelectFile={setSelectedFileId}
-                onViewFile={isOnlineMode ? undefined : handleViewFile}
-                onViewImages={isOnlineMode ? undefined : handleViewImages}
-                onToggleSidebar={isOnlineMode ? undefined : () => setIsSidebarOpenMobile(true)}
+                onViewFile={handleViewFile}
+                onViewImages={handleViewImages}
+                onToggleSidebar={() => setIsSidebarOpenMobile(true)}
                 onOpenSettings={isOnlineMode ? undefined : () => setIsSettingsOpen(true)}
               />
             )}
@@ -1320,8 +1328,8 @@ export const AppShell: React.FC = () => {
                   isInline={true}
                   result={result}
                   onDismissResult={() => setResult(null)}
-                  onViewFile={isOnlineMode ? undefined : handleViewFile}
-                  onViewImages={isOnlineMode ? undefined : handleViewImages}
+                  onViewFile={handleViewFile}
+                  onViewImages={handleViewImages}
                 />
               </div>
             )}
@@ -1343,8 +1351,8 @@ export const AppShell: React.FC = () => {
                 onSelectFile={setSelectedFileId}
                 result={result}
                 onDismissResult={() => setResult(null)}
-                onViewFile={isOnlineMode ? undefined : handleViewFile}
-                onViewImages={isOnlineMode ? undefined : handleViewImages}
+                onViewFile={handleViewFile}
+                onViewImages={handleViewImages}
               />
             </div>
           )}
@@ -1589,45 +1597,39 @@ export const AppShell: React.FC = () => {
         }}
       />
 
-      {/* Global In-App PDF Viewer - Disabled in Online Mode */}
-      {!isOnlineMode && (
-        <PdfViewerModal
-          isOpen={Boolean(openedPdf) || isOpeningIncomingPdf}
-          onClose={() => {
-            setOpenedPdf(null);
-            setIsOpeningIncomingPdf(false);
-          }}
-          pdfBlob={openedPdf?.blob ?? null}
-          fileName={openedPdf?.name || initialPendingPdfName || 'Document.pdf'}
-          onCompress={activeToolId === 'image-resizer' ? undefined : handleCompressPdfFromViewer}
-        />
-      )}
+      {/* Global In-App PDF Viewer */}
+      <PdfViewerModal
+        isOpen={Boolean(openedPdf) || isOpeningIncomingPdf}
+        onClose={() => {
+          setOpenedPdf(null);
+          setIsOpeningIncomingPdf(false);
+        }}
+        pdfBlob={openedPdf?.blob ?? null}
+        fileName={openedPdf?.name || initialPendingPdfName || 'Document.pdf'}
+        onCompress={activeToolId === 'image-resizer' ? undefined : handleCompressPdfFromViewer}
+      />
 
-      {/* Global Image Gallery Viewer - Disabled in Online Mode */}
-      {!isOnlineMode && (
-        <ImageGalleryModal
-          isOpen={isGalleryOpen}
-          onClose={() => setIsGalleryOpen(false)}
-          images={galleryImages}
-          initialIndex={galleryInitialIndex}
-          onCompressImage={handleCompressImageFromGallery}
-          onResizeImage={handleResizeImageFromGallery}
-          onConvertImagesToPdf={handleConvertImagesFromGallery}
-          onAddImages={(newItems) => setGalleryImages((prev) => [...prev, ...newItems])}
-          onRemoveImage={(id) => setGalleryImages((prev) => prev.filter((it) => it.id !== id))}
-        />
-      )}
+      {/* Global Image Gallery Viewer */}
+      <ImageGalleryModal
+        isOpen={isGalleryOpen}
+        onClose={() => setIsGalleryOpen(false)}
+        images={galleryImages}
+        initialIndex={galleryInitialIndex}
+        onCompressImage={handleCompressImageFromGallery}
+        onResizeImage={handleResizeImageFromGallery}
+        onConvertImagesToPdf={handleConvertImagesFromGallery}
+        onAddImages={(newItems) => setGalleryImages((prev) => [...prev, ...newItems])}
+        onRemoveImage={(id) => setGalleryImages((prev) => prev.filter((it) => it.id !== id))}
+      />
 
-      {/* Confirmation modal for discarding in-progress work - Disabled in Online Mode */}
-      {!isOnlineMode && (
-        <DiscardWarningModal
-          isOpen={isDiscardWarningOpen}
-          itemCount={files.length}
-          actionWording={getActionWording()}
-          onCancel={handleCancelDiscard}
-          onConfirm={handleConfirmDiscard}
-        />
-      )}
+      {/* Confirmation modal for discarding in-progress work */}
+      <DiscardWarningModal
+        isOpen={isDiscardWarningOpen}
+        itemCount={files.length}
+        actionWording={getActionWording()}
+        onCancel={handleCancelDiscard}
+        onConfirm={handleConfirmDiscard}
+      />
 
       {/* PWA Prompt-based Service Worker Update Notification */}
       <PWAUpdateToast />
