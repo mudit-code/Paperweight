@@ -78,6 +78,7 @@
   --card-shadow: 0 16px 40px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.03);
   --progress-track: #efece4;
   --header-bg: rgba(247, 245, 240, 0.88);
+  --text-on-gold: #111113;
 }
 
 :root[data-theme="dark"] {
@@ -104,6 +105,7 @@
   --card-shadow: 0 20px 48px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.25);
   --progress-track: #2c2c30;
   --header-bg: rgba(21, 21, 23, 0.88);
+  --text-on-gold: #111113;
 }
 
 *,
@@ -196,53 +198,79 @@ a {
 
 .btn-pill-nav {
   background: var(--gold-accent);
-  color: var(--text-main);
-  padding: 10px 24px;
-  border-radius: 9999px;
+  color: var(--text-on-gold);
+  border: 1px solid var(--gold-accent);
+  padding: 10px 22px;
+  border-radius: 12px;
   font-size: 15px;
   font-weight: 600;
+  height: 42px;
+  box-sizing: border-box;
 }
 
 .btn-pill-nav:hover {
   background: var(--gold-hover);
+  border-color: var(--gold-hover);
+  color: var(--text-on-gold);
 }
 
 .btn-primary {
   background: var(--gold-accent);
-  color: var(--text-main);
-  padding: 15px 36px;
+  color: var(--text-on-gold);
+  border: 1px solid var(--gold-accent);
+  width: 160px;
+  height: 52px;
+  padding: 0;
   border-radius: 12px;
   font-size: 16px;
+  font-weight: 600;
+  box-sizing: border-box;
+  text-align: center;
+  justify-content: center;
 }
 
 .btn-primary:hover {
   background: var(--gold-hover);
+  border-color: var(--gold-hover);
+  color: var(--text-on-gold);
 }
 
 .btn-secondary {
-  background: transparent;
+  background: var(--bg-card);
   color: var(--text-main);
-  padding: 15px 36px;
-  border-radius: 12px;
   border: 1px solid var(--border-button);
+  width: 160px;
+  height: 52px;
+  padding: 0;
+  border-radius: 12px;
   font-size: 16px;
+  font-weight: 600;
+  box-sizing: border-box;
+  text-align: center;
+  justify-content: center;
 }
 
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--border-hairline);
   border-color: var(--text-main);
+  color: var(--text-main);
 }
 
 .btn-download {
   background: var(--gold-accent);
-  color: var(--text-main);
+  color: var(--text-on-gold);
+  border: 1px solid var(--gold-accent);
   padding: 14px 30px;
   border-radius: 12px;
   font-size: 15px;
+  font-weight: 600;
+  box-sizing: border-box;
 }
 
 .btn-download:hover {
   background: var(--gold-hover);
+  border-color: var(--gold-hover);
+  color: var(--text-on-gold);
 }
 
 .btn-copy {
@@ -401,7 +429,7 @@ a {
 
 .highlight-box {
   background: var(--gold-accent);
-  color: var(--text-main);
+  color: var(--text-on-gold);
   border-radius: 6px;
   padding: 1px 12px;
   display: inline-block;
@@ -752,6 +780,19 @@ a {
   color: var(--text-muted);
 }
 
+.footer-author-link {
+  color: var(--text-main);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--gold-accent);
+  font-weight: 500;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+
+.footer-author-link:hover {
+  color: var(--gold-accent);
+}
+
 .footer-links {
   display: flex;
   align-items: center;
@@ -893,6 +934,8 @@ a {
   .btn-pill-nav {
     padding: 8px 18px;
     font-size: 13.5px;
+    border-radius: 10px;
+    height: 38px;
   }
 
   .hero-section {
@@ -936,7 +979,8 @@ a {
   .btn-primary,
   .btn-secondary {
     width: 100%;
-    padding: 14px 20px;
+    height: 50px;
+    padding: 0;
     font-size: 15px;
     border-radius: 12px;
   }
@@ -1328,7 +1372,7 @@ a {
     <!-- Footer -->
     <footer class="site-footer">
       <div class="container footer-inner">
-        <span class="footer-credit">Paperweight &middot; built by Mudit</span>
+        <span class="footer-credit">Paperweight &middot; built by <a href="https://muditcodes.tech" target="_blank" rel="noopener" class="footer-author-link">muditcodes</a></span>
         <div class="footer-links">
           <a href="https://github.com/mudit-code/Paperweight" target="_blank" rel="noopener">GitHub</a>
           <a href="#features">Features</a>
